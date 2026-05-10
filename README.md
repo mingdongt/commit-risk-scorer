@@ -87,6 +87,25 @@ This project is the integration that unifies all three. See [`docs/design-doc.md
 └── ci/                              <- GitHub Actions workflows
 ```
 
+## Initial Results — smoke-test pipeline validation
+
+The first end-to-end run validates the **data load → tokenize → LoRA → train → eval** pipeline on a CPU laptop. This is **pipeline validation, not a capability benchmark** — see *Production target* below for the meaningful comparison.
+
+**Setup**: HuggingFace PEFT + LoRA on DistilBERT-base (~67 M params), 300-example subsample per split of CodeXGLUE Devign, 1 epoch, batch size 8, CPU only.
+**Trainable parameters**: 739,586 (1.1 % of base model thanks to LoRA rank-8 adapter).
+
+| Metric | Test split |
+| --- | --- |
+| F1 | 0.3828 |
+| Precision | 0.3684 |
+| Recall | 0.3984 |
+| Accuracy | 0.4733 |
+| AUC-ROC | 0.466 |
+
+**Interpretation**: F1 below 0.5 is expected for this minimal smoke run — 300 training samples, single epoch, and a base model not pre-trained on code is not enough signal to learn the task. The point of this run is to confirm every step of the pipeline executes correctly and emits valid metrics, not to claim capability. Raw metrics: [`data/models/smoke/smoke_metrics.json`](data/models/smoke/smoke_metrics.json).
+
+**Production target**: NVIDIA NeMo + LoRA + Mistral-7B-v0.3 on full Devign + ~1 k self-labeled GitHub PR/CI scrapes. Code in [`src/models/finetune/train_nemo.py`](src/models/finetune/train_nemo.py); pending CUDA environment + base-model conversion.
+
 ## Status
 
 **Active development.** Public technical artifact. See [`docs/design-doc.md`](docs/design-doc.md) for current scope and open questions.
