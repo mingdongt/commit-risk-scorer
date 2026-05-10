@@ -64,6 +64,16 @@ This project is the integration that unifies all three. See [`docs/design-doc.md
 - **Index**: Elasticsearch
 - **CI**: GitHub Actions (eval-gated deploys)
 
+## Try it locally
+
+```bash
+git clone https://github.com/mingdongt/commit-risk-scorer
+cd commit-risk-scorer
+pip install -e .                  # installs deps declared in pyproject.toml
+python -m src.agent.harness       # runs the harness demo on a hand-crafted diff
+pytest tests/                     # 9 unit tests, ~70 ms
+```
+
 ## Repository structure
 
 ```
