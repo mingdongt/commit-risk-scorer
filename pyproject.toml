@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commit-risk-scorer"
+version = "0.1.0"
+description = "Open-source predictive code-review agent — bridges generative LLM review and trained predictive defect models on NVIDIA's open-source AI stack."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Mingdong (Eric) Tan", email = "mingdongtan6@gmail.com" },
+]
+keywords = [
+    "code-review",
+    "ci-failure-prediction",
+    "agent",
+    "claude-agent-sdk",
+    "nvidia-nemo",
+    "lora",
+    "fine-tuning",
+    "rag",
+    "developer-productivity",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+dependencies = [
+    # Core
+    "torch>=2.1",
+    "numpy>=1.26",
+    "requests>=2.31",
+    # Data
+    "datasets>=2.18",
+    "pandas>=2.0",
+    # Smoke-test path (HF + LoRA on small models, CPU-friendly)
+    "transformers>=4.40",
+    "peft>=0.10",
+    "accelerate>=0.28",
+    "evaluate>=0.4",
+    "scikit-learn>=1.4",
+    # Serving / API
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    # Dashboard
+    "streamlit>=1.32",
+]
+
+[project.optional-dependencies]
+# Production fine-tune / serving — requires CUDA + NeMo container.
+# Install separately: see src/models/finetune/train_nemo.py header for the recommended container.
+production = [
+    # "nemo-toolkit[all]>=2.0",  # requires CUDA; uncomment when running in NeMo container
+    # "tritonclient[http]>=2.45",
+]
+
+# Red-teaming + safety (optional but recommended; per design-doc §Eval Methodology)
+safety = [
+    # "garak>=0.9",                    # NVIDIA red-team scanner
+    # "nemoguardrails>=0.9",           # NVIDIA programmable guardrails
+]
+
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/mingdongt/commit-risk-scorer"
+Documentation = "https://github.com/mingdongt/commit-risk-scorer/blob/main/docs/design-doc.md"
+Repository = "https://github.com/mingdongt/commit-risk-scorer"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
