@@ -1,6 +1,6 @@
 # commit-risk-scorer — Design Document
 
-> Status: **Draft v0.1** — last updated 2026-05-09.
+> Status: **Draft v0.2** — last updated 2026-05-10.
 >
 > This document captures motivation, prior art, design decisions, and eval methodology for `commit-risk-scorer`. It is the constitution of the project; code references and matches it.
 
@@ -9,15 +9,17 @@
 ## Table of Contents
 
 1. [Motivation](#motivation)
-2. [Problem Statement](#problem-statement)
-3. [Prior Art](#prior-art)
-4. [Hypothesis & Success Criteria](#hypothesis--success-criteria)
-5. [Alternatives Considered](#alternatives-considered)
-6. [Architecture](#architecture)
-7. [Eval Methodology](#eval-methodology)
-8. [Risks & Mitigations](#risks--mitigations)
-9. [Open Questions](#open-questions)
-10. [References](#references)
+2. [Why This Gap Exists](#why-this-gap-exists)
+3. [Problem Statement](#problem-statement)
+4. [Prior Art](#prior-art)
+5. [Hypothesis & Success Criteria](#hypothesis--success-criteria)
+6. [Alternatives Considered](#alternatives-considered)
+7. [Architecture](#architecture)
+8. [Eval Methodology](#eval-methodology)
+9. [Risks & Mitigations](#risks--mitigations)
+10. [Limitations & Honest Caveats](#limitations--honest-caveats)
+11. [Open Questions](#open-questions)
+12. [References](#references)
 
 ---
 
@@ -55,6 +57,73 @@ The system is built to mirror the operating discipline of a real internal platfo
 ### Layer 4 — Meta motivation
 
 Building this project is a forcing function: it requires hands-on familiarity with NVIDIA NeMo, Triton, NIM, Garak, and NeMo Guardrails. The artifact is the proof; the learning is the real product.
+
+---
+
+## Why This Gap Exists
+
+The integration this project performs — hybrid predictive pipeline + LLM agent harness + commit-history RAG, served on NVIDIA's open-source AI stack — does not exist as a single open-source artifact. That gap raises a fair question: *if it's so useful, why hasn't anyone shipped it?*
+
+Four reasons, in order of importance:
+
+### 1. Big-tech equivalents exist — they're just not open-sourced
+
+Internal commit-risk and build-failure-prediction tooling has existed at scale for years:
+
+- **Google** — Tricorder (static analysis + risk-flagging on changelists)
+- **Meta** — Sapienz / Getafix (test generation + automated repair)
+- **Microsoft** — TestImpact, internal CloudBuild failure prediction
+- **Amazon** — CodeGuru Reviewer (commercialized as paid SaaS)
+- **GitHub** — Copilot Workspace / Code Review (closed product)
+
+The gap is in *open-source* tooling, not in *industry knowledge*. Big-tech treats this class of tool as competitive-advantage infrastructure rather than an ecosystem contribution.
+
+### 2. The data is genuinely noisy — but the field is not new
+
+CI outcomes conflate signal (bad commits) with noise (flaky tests, infra failures, upstream dependency churn). This is a real limitation, not a fatal one — academia has worked on **Just-In-Time (JIT) defect prediction** for over a decade with established benchmarks:
+
+- Kamei et al. 2013 — JIT-QA framework
+- DeepJIT (Hoang et al., 2019) — first deep-learning approach
+- CC2Vec (Hoang et al., 2020) — commit-specific embeddings
+- DeepLineDP (2022) — line-level prediction
+- JITLine (Kondo et al., 2023) — LLM-augmented context
+
+Published F1 baselines on standard datasets (PROMISE, Defects4J) sit in the **0.55–0.75** range — a defensible target.
+
+### 3. The LLM + agent + code-embedding stack only matured in 2024–2026
+
+The dependencies this project relies on are recent:
+
+- Code-aware embedding models (CodeBERT/GraphCodeBERT 2020–2022; Voyage Code 2024)
+- Long-context LLMs that fit a full diff plus retrieved context (2023–2024)
+- Standardized agent SDKs and the MCP tool protocol (2024–2025)
+- NVIDIA NeMo Guardrails / NIM / Garak — production-ready open releases (2024–2025)
+
+A version of this project attempted in 2022 would have been substantially harder; one attempted in 2027 may look obvious in retrospect.
+
+### 4. The market is narrow — but it is exactly the brief of an internal platform team
+
+Commit-risk scoring matters most to:
+
+- Large engineering organizations (1000+ developers)
+- Internal platform / SRE / DevOps teams
+- Organizations with DORA-aware leadership
+
+A narrow segment for general-purpose product companies. An exact fit for an internal-platform group such as NVIDIA's IPP organization.
+
+### Confidence calibration
+
+This project is built as an **integrator, not an inventor**. Every component is individually validated:
+
+| Component | Maturity |
+| --- | --- |
+| JIT defect prediction concept | Mature — 10+ years academic research, internal big-tech tools |
+| Hybrid classifier + LLM judge | Pattern proven elsewhere (search re-ranking, content moderation) |
+| Code-aware embedding RAG | Mature in codebase RAG; less explored on commit history |
+| NVIDIA NeMo / Triton / Garak / Guardrails | Stable production-ready open-source releases |
+| Claude Agent SDK + MCP tool federation | Recent but stable |
+
+The contribution is the **combination** — a single runnable artifact demonstrating these components composing cleanly into a platform-team-grade tool.
 
 ---
 
@@ -134,6 +203,37 @@ Key components:
 | **License compatibility** — Llama-3.1 has commercial restrictions. | Use Mistral-7B-v0.3 (Apache 2.0) as base instead. |
 | **Numbers will be challenged** — "saved ~5–8 hours/week" methodology must be defensible. | Publish estimation methodology in [`docs/metrics.md`](metrics.md). |
 | **Scope creep** — every NVIDIA tool feels worth integrating. | Stick to the five chosen (NeMo, NIM, Triton, Garak, Guardrails); explicitly mark others out-of-scope. |
+
+---
+
+## Limitations & Honest Caveats
+
+This project's scope is deliberately bounded by what one engineer can validate end-to-end on public data with realistic compute. Where corner-cutting is unavoidable, this section names it explicitly.
+
+### 1. Public CI data is noisy
+
+GitHub PR + CI outcome data conflates code quality with flaky tests, infra failures, and upstream-dependency churn. Internal datasets at large engineering organizations have access to richer signals (test execution traces, author tenure, repo-specific tuning) that are not reproducible publicly.
+
+**Practical implication:** Expected F1 on labeled public data sits in the **0.55–0.70** range, consistent with published JIT defect-prediction baselines on PROMISE / Defects4J. State-of-the-art internal systems likely outperform this; that comparison is out of scope.
+
+### 2. Class imbalance — most commits pass CI
+
+The positive class (CI failure / revert) is rare in any healthy repository. Both the classifier and the judge require explicit handling:
+
+- **Classifier**: focal loss or class weighting; threshold calibration on a held-out validation set.
+- **Judge**: prompt engineering and decision policy to avoid over-confident false positives on routine changes.
+
+### 3. No production validation
+
+The DORA impact dashboard renders simulated data on labeled holdouts. Real cycle-time / change-failure-rate / MTTR delta numbers require deployment in a real organization with controlled rollout — explicitly out of scope for this OSS artifact.
+
+### 4. Big-tech internal equivalents likely outperform on accuracy
+
+Tools listed in [§Why This Gap Exists §1](#1-big-tech-equivalents-exist--theyre-just-not-open-sourced) have access to signals this project cannot reproduce. The contribution here is **architecture viability and integration discipline on public data**, not state-of-the-art accuracy on proprietary signals.
+
+### 5. NeMo / Triton / NIM stack assumes accessible compute
+
+Production-target serving (Mistral-7B-v0.3 + Triton + NIM) requires a CUDA-capable environment. The current pipeline (see README "Initial Results") falls back to a CPU-friendly DistilBERT smoke-test on the laptop where this is being developed. Bringing the production target online is the next milestone, not a current claim.
 
 ---
 

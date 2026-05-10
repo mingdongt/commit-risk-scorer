@@ -22,7 +22,7 @@ Existing solutions occupy one corner of the design space:
 | CodeBERT / [Devign](https://github.com/microsoft/CodeXGLUE) | Trained classifier | No reasoning or agent integration |
 | [NVIDIA Garak](https://github.com/NVIDIA/garak) | LLM red-teaming | Not specialized for code-review agents |
 
-This project is the integration that unifies all three. See [`docs/design-doc.md`](docs/design-doc.md) for full motivation, prior art comparison, and architectural trade-offs.
+This project is the integration that unifies all three. Internal big-tech equivalents (Google Tricorder, Meta Sapienz, Microsoft TestImpact, Amazon CodeGuru) exist at scale but are closed-source — this project bridges that open-source gap. See [`docs/design-doc.md`](docs/design-doc.md) for full motivation, prior art comparison, architectural trade-offs, and honest caveats.
 
 ## Architecture (in brief)
 
