@@ -47,7 +47,9 @@ def tokenize_dataset(ds: DatasetDict, tokenizer) -> DatasetDict:
             truncation=True,
             max_length=MAX_LENGTH,
         )
-        out["labels"] = examples["target"]
+        # Devign's `target` is stored as bool; cast to int so PyTorch builds a
+        # LongTensor (required for CrossEntropyLoss), not a float tensor.
+        out["labels"] = [int(t) for t in examples["target"]]
         return out
 
     keep = {"input_ids", "attention_mask", "labels"}
@@ -84,7 +86,13 @@ def main() -> None:
 
     print(f"[2/5] Loading tokenizer + base model: {BASE_MODEL}")
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
-    model = AutoModelForSequenceClassification.from_pretrained(BASE_MODEL, num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        BASE_MODEL,
+        num_labels=2,
+        # Force CrossEntropyLoss path; default auto-detection picks BCE when
+        # labels are bool-like, which mismatches our (batch,) target shape.
+        problem_type="single_label_classification",
+    )
 
     print(f"[3/5] Wrapping with LoRA adapter (rank={args.lora_rank}, alpha={args.lora_alpha})")
     lora_config = LoraConfig(
@@ -114,7 +122,7 @@ def main() -> None:
         logging_steps=20,
         report_to="none",
         seed=args.seed,
-        no_cuda=True,  # explicit CPU
+        use_cpu=True,  # explicit CPU (replaces deprecated no_cuda kwarg)
     )
 
     trainer = Trainer(
@@ -122,7 +130,7 @@ def main() -> None:
         args=training_args,
         train_dataset=tokenized["train"],
         eval_dataset=tokenized["validation"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,  # replaces deprecated `tokenizer` kwarg
         data_collator=DataCollatorWithPadding(tokenizer=tokenizer),
         compute_metrics=hf_compute_metrics,
     )
