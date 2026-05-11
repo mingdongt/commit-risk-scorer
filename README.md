@@ -4,17 +4,56 @@
 [![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-> **Open-source predictive code-review agent** — bridges generative LLM review (PR-Agent style) and trained predictive defect models (CodeBERT family) into a hybrid pipeline served on NVIDIA's open-source AI stack.
+> A **shift-left engineering intelligence agent** that predicts PR risk, recommends **reviewer / test / gate actions**, and **closes the loop** through CI, telemetry, and DORA-style engineering metrics. Built on NVIDIA's open AI stack with a hybrid predictive pipeline (FT classifier + LLM judge).
 
 ## What it does
 
-Given a git commit or pull request, produces:
+**Input**: PR diff + metadata (author, files, target branch) + build/test history + ownership signals.
 
-1. **Risk score** (0–100%) — probability the change will cause CI failure or need revert
-2. **Reasoning** — natural-language explanation grounded in similar historical PRs
-3. **Recommended action** — reviewer assignment, extended test suite, manual review gate
+**Output**:
 
-Designed to run as a CI check on every PR — providing **pre-merge predictive signal** that complements (not replaces) traditional CI.
+1. **Risk score** (0–100) and **risk level** (Low / Medium / High / Critical)
+2. **Top risk factors** — evidence-backed (file-ownership gaps, weak test coverage, historically failing areas, deployment blast radius)
+3. **Recommended actions** — reviewer assignment, test suite to run, gate decision (not just a numeric signal)
+4. **DORA-style impact telemetry** — cycle time, change failure rate, MTTR, adoption, FP/FN feedback
+
+The risk score is **not the product** — the *action* is. Score feeds into a policy decision surface:
+
+### Risk → Action mapping
+
+| Score | Level | Action |
+| --- | --- | --- |
+| 0–20 | Low | Fast-track / normal review |
+| 21–50 | Medium | Add code-owner reviewer + targeted tests |
+| 51–80 | High | Require SME review + extended CI |
+| 81–100 | Critical | Block merge / manual gate |
+
+### Example output
+
+```json
+{
+  "riskScore": 72,
+  "riskLevel": "High",
+  "topRiskFactors": [
+    "Touches auth middleware (high-incident area)",
+    "No test coverage for the modified branch",
+    "Similar historical PRs caused CI failures"
+  ],
+  "recommendedActions": [
+    "Add security / code-owner reviewer",
+    "Run extended integration test suite",
+    "Block auto-merge until reviewer approval"
+  ],
+  "confidence": 0.81,
+  "evidence": [
+    "Changed file: src/auth/token_validator.py — owned by @security-team",
+    "Historical match: PR #1842 failed `test_auth_session_refresh`",
+    "Test impact: 0 of 12 covering tests modified"
+  ]
+}
+```
+
+Designed to run as a CI check on every PR — providing **pre-merge predictive signal that drives policy decisions**, not just numeric scores. See [`docs/evaluation.md`](docs/evaluation.md) for how each layer is measured and [`docs/enterprise-safety.md`](docs/enterprise-safety.md) for the production-safety controls.
 
 ## Why this exists
 
