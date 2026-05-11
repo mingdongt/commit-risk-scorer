@@ -1,5 +1,9 @@
 # commit-risk-scorer
 
+[![eval](https://github.com/mingdongt/commit-risk-scorer/actions/workflows/eval.yml/badge.svg)](https://github.com/mingdongt/commit-risk-scorer/actions/workflows/eval.yml)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 > **Open-source predictive code-review agent** — bridges generative LLM review (PR-Agent style) and trained predictive defect models (CodeBERT family) into a hybrid pipeline served on NVIDIA's open-source AI stack.
 
 ## What it does
@@ -92,9 +96,10 @@ pytest tests/                     # 9 unit tests, ~70 ms
 │   ├── eval/                        <- pytest eval suite, Garak probes
 │   ├── serving/                     <- FastAPI + Triton client
 │   └── metrics/                     <- DORA dashboard
+├── tests/                           <- pytest suite (regression-gated CI)
 ├── data/                            <- labeled commits (gitignored)
 ├── notebooks/                       <- exploration, baselines, fine-tune logs
-└── ci/                              <- GitHub Actions workflows
+└── .github/workflows/               <- GitHub Actions: eval.yml runs pytest on push + PR
 ```
 
 ## Initial Results — smoke-test pipeline validation

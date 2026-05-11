@@ -1,0 +1,36 @@
+name: eval
+
+# Runs on every push to main and every PR — the regression-gated CI described
+# in docs/design-doc.md §Eval Methodology. A merge that breaks tests is blocked.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest (Python 3.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install pytest
+        # Agent-harness tests are pure Python (stdlib + own modules), so we don't
+        # need the full ML dependency stack here. Heavier integration jobs (smoke
+        # training, Garak red-team) ship as separate workflows in v0.2.
+        run: pip install pytest
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
