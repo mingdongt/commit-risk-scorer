@@ -6,6 +6,14 @@
 
 > A **shift-left engineering intelligence agent** that predicts PR risk, recommends **reviewer / test / gate actions**, and **closes the loop** through CI, telemetry, and DORA-style engineering metrics. Built on NVIDIA's open AI stack with a hybrid predictive pipeline (FT classifier + LLM judge).
 
+## Why I built this
+
+Two reasons, both honest:
+
+1. **There's a real gap in open-source tooling.** Generative LLM PR reviewers (PR-Agent) and trained predictive defect models (CodeBERT family) sit in different corners; no current OSS project integrates them with platform-team operating discipline. This project ships that integration.
+
+2. **The artifact is the proof; the learning is part of the value.** Building this requires hands-on familiarity with NVIDIA's open AI stack (NeMo, Triton, NIM, Garak, NeMo Guardrails) and the rhythm of internal platform teams (eval-gated CI, runbooks, postmortems, partner-team onboarding). The motivation is candid — this is both a working artifact for adopting teams and a public showcase of how I approach enterprise AI tooling.
+
 ## What it does
 
 **Input**: PR diff + metadata (author, files, target branch) + build/test history + ownership signals.

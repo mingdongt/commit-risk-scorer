@@ -120,6 +120,18 @@ The log is the source of truth for the **agent-eval** (Layer 2 in
 [`evaluation.md`](evaluation.md)) and for any incident postmortem
 ([`postmortem-template.md`](postmortem-template.md)).
 
+**Supported backends** (see [`../src/storage/audit_store.py`](../src/storage/audit_store.py)):
+
+- **MongoDB** — document-oriented; flexible schema fits the variable-length
+  `evidence[]` / `top_risk_factors[]` payload natively.
+- **MySQL** — relational + transactional; preferred when the audit trail must
+  participate in cross-system transactions (e.g., joined against an issue tracker).
+- **Elasticsearch** — search-first; co-locates the audit trail with the
+  historical-PR RAG index in the same cluster (one ES, two index patterns).
+- **TeeAuditStore** — multiplexes writes (e.g., MySQL system-of-record +
+  Elasticsearch mirror for search). Primary-backend failures bubble to caller;
+  mirror failures are logged but do not block the agent's response.
+
 ---
 
 ## Why this section exists
