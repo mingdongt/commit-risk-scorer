@@ -105,14 +105,16 @@ This project is the integration that unifies all three. Internal big-tech equiva
 
 ## Tech stack
 
-- **Agent harness**: Claude Agent SDK, MCP tool federation
+- **Agent harness**: Claude Agent SDK, MCP tool federation (NVIDIA-native alternative: AIQ Toolkit + NeMo Retriever — see [`docs/design-doc.md`](docs/design-doc.md))
 - **Fine-tuning**: NVIDIA NeMo + LoRA (Mistral-7B-v0.3 base)
+- **Classical-ML baseline**: NVIDIA RAPIDS cuML (GBDT on engineered features; sklearn CPU fallback for dev)
+- **Inference optimization**: NVIDIA TensorRT-LLM (engine compilation for the Mistral adapter)
 - **Serving**: NVIDIA Triton Inference Server, NVIDIA NIM
 - **Evaluation**: pytest, NVIDIA Garak (red-teaming)
 - **Safety**: NVIDIA NeMo Guardrails
 - **Backend**: Python, FastAPI
 - **Dashboard**: Streamlit
-- **Index**: Elasticsearch
+- **Storage**: MongoDB / MySQL / Elasticsearch (multi-backend audit log + RAG index — see [`src/storage/audit_store.py`](src/storage/audit_store.py))
 - **CI**: GitHub Actions (eval-gated deploys)
 
 ## Try it locally
@@ -149,24 +151,30 @@ pytest tests/                     # 9 unit tests, ~70 ms
 └── .github/workflows/               <- GitHub Actions: eval.yml runs pytest on push + PR
 ```
 
-## Initial Results — smoke-test pipeline validation
+## Initial Results — pipeline validation across baselines
 
-The first end-to-end run validates the **data load → tokenize → LoRA → train → eval** pipeline on a CPU laptop. This is **pipeline validation, not a capability benchmark** — see *Production target* below for the meaningful comparison.
+Two pipelines have been validated end-to-end on subsamples of CodeXGLUE Devign. The point of this section is *pipeline validation* and *trade-off surfacing*, not capability claims — see *Production target* below for the meaningful comparison.
 
-**Setup**: HuggingFace PEFT + LoRA on DistilBERT-base (~67 M params), 300-example subsample per split of CodeXGLUE Devign, 1 epoch, batch size 8, CPU only.
-**Trainable parameters**: 739,586 (1.1 % of base model thanks to LoRA rank-8 adapter).
+| Metric | DistilBERT + LoRA (HF PEFT smoke) | cuML GBDT baseline (sklearn-fallback) |
+| --- | --- | --- |
+| F1 | 0.383 | **0.436** |
+| Precision | 0.368 | **0.494** |
+| Recall | **0.398** | 0.390 |
+| Accuracy | 0.473 | **0.570** |
+| AUC-ROC | 0.466 | **0.545** |
 
-| Metric | Test split |
-| --- | --- |
-| F1 | 0.3828 |
-| Precision | 0.3684 |
-| Recall | 0.3984 |
-| Accuracy | 0.4733 |
-| AUC-ROC | 0.466 |
+- DistilBERT LoRA: 300 examples/split, 1 epoch, ~740 K trainable params (rank-8). CPU only.
+- GBDT baseline: 500 examples/split, 10 engineered features (LOC, alloc/free, pointer arithmetic, branch/loop counts, etc.). CPU sklearn fallback (the script auto-detects RAPIDS cuML on a CUDA box).
 
-**Interpretation**: F1 below 0.5 is expected for this minimal smoke run — 300 training samples, single epoch, and a base model not pre-trained on code is not enough signal to learn the task. The point of this run is to confirm every step of the pipeline executes correctly and emits valid metrics, not to claim capability. Raw metrics: [`data/models/smoke/smoke_metrics.json`](data/models/smoke/smoke_metrics.json).
+**Findings**:
 
-**Production target**: NVIDIA NeMo + LoRA + Mistral-7B-v0.3 on full Devign + ~1 k self-labeled GitHub PR/CI scrapes. Code in [`src/models/finetune/train_nemo.py`](src/models/finetune/train_nemo.py); pending CUDA environment + base-model conversion.
+- On this subsample size, **the engineered-feature GBDT beats the LoRA-tuned DistilBERT** on F1, precision, accuracy, and AUC-ROC. The baseline existing isn't a defect — it's the point: simple features go a long way on small data, and DistilBERT is the wrong base (not pre-trained on code; ~300 samples insufficient).
+- DistilBERT AUC-ROC at 0.466 is below random; GBDT at 0.545 is the first sign of real discriminative signal.
+- **Implication for production**: don't use DistilBERT. The Mistral-7B-v0.3 path via NeMo (full dataset + code-pretrained base) is the right next step. The GBDT remains useful as a fast classifier ensemble component.
+
+Raw metrics: [`data/models/smoke/smoke_metrics.json`](data/models/smoke/smoke_metrics.json) · [`data/models/baselines/cuml_gbdt_metrics.json`](data/models/baselines/cuml_gbdt_metrics.json).
+
+**Production target**: NVIDIA NeMo + LoRA + Mistral-7B-v0.3 on full Devign + ~1 k self-labeled GitHub PR/CI scrapes, followed by **TensorRT-LLM engine compilation** for Triton serving. Code in [`src/models/finetune/train_nemo.py`](src/models/finetune/train_nemo.py); pending CUDA environment + base-model conversion.
 
 ## Status
 

@@ -1,0 +1,25 @@
+{
+  "runtime": "sklearn-cpu-fallback",
+  "n_train": 500,
+  "n_test": 500,
+  "n_features": 10,
+  "feature_names": [
+    "lines_total",
+    "lines_avg_length",
+    "has_pointer_arith",
+    "has_alloc",
+    "has_free",
+    "has_memcpy",
+    "has_strcpy",
+    "branch_count",
+    "loop_count",
+    "return_count"
+  ],
+  "n_estimators": 100,
+  "max_depth": 6,
+  "f1": 0.4357,
+  "precision": 0.494,
+  "recall": 0.3897,
+  "accuracy": 0.57,
+  "auc_roc": 0.5447
+}

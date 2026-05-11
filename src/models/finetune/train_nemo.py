@@ -170,7 +170,15 @@ def main() -> None:
     model.save_to(str(adapter_path))
     print(f"\nProduction NeMo + Mistral-7B-v0.3 LoRA fine-tune complete.")
     print(f"Adapter:  {adapter_path}")
-    print(f"Next:    serve via Triton — see src/serving/triton_client.py (coming in v0.2)")
+    # Next step in the production path: compile the merged base+adapter weights
+    # to a TensorRT-LLM engine for lower inference latency on Triton.
+    #     trtllm-build --checkpoint_dir <merged_weights> \
+    #                  --output_dir <trt_engine_dir> \
+    #                  --gemm_plugin float16 \
+    #                  --max_input_len 4096 --max_output_len 1024
+    # The resulting engine is served via the Triton TRT-LLM backend; see
+    # docs/design-doc.md §Architecture for the full path. — TODO(v0.2)
+    print(f"Next:    compile to TensorRT-LLM engine (trtllm-build) -> serve via Triton TRT-LLM backend")
 
 
 if __name__ == "__main__":

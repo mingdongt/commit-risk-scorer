@@ -177,8 +177,10 @@ Key components:
 
 - **Agent harness** — Claude Agent SDK with three sub-agents (`diff-analyzer`, `test-impact-scout`, `historical-context`).
 - **Multi-vendor gateway** — single `predict()` API across Claude, NVIDIA NIM, Triton-served NeMo fine-tune, and Azure OpenAI.
-- **Predictive classifier** — Mistral-7B-v0.3 (Apache 2.0 base) fine-tuned via NeMo + LoRA on CodeXGLUE Devign + self-labeled GitHub PR/CI outcomes.
+- **Predictive classifier** — Mistral-7B-v0.3 (Apache 2.0 base) fine-tuned via NeMo + LoRA on CodeXGLUE Devign + self-labeled GitHub PR/CI outcomes; compiled to a **TensorRT-LLM engine** via `trtllm-build` for low-latency Triton serving.
+- **Classical-ML baseline** — NVIDIA RAPIDS **cuML GBDT** on engineered commit features (LOC, alloc/free, branch/loop counts, etc.); reported alongside the LLM path so the design surfaces *when classical wins*. See [`../src/models/baselines/cuml_gbdt.py`](../src/models/baselines/cuml_gbdt.py).
 - **RAG layer** — Elasticsearch index of historical PRs with embeddings, retrieved as judge context.
+- **Audit / persistence** — Multi-backend audit log (MongoDB / MySQL / Elasticsearch) plus optional Tee mirroring; required by `enterprise-safety.md` Control 6.
 - **Safety layer** — NeMo Guardrails for output constraints; Garak probes in eval CI.
 
 ---
@@ -326,6 +328,38 @@ opening for a tool like this.
 This entire section is **roadmap-only** in v0.1. The classification stub lives
 behind `pr_metadata["author_class"]` in the harness API; the additional risk
 factors will be wired into a new sub-agent (`agent_pr_auditor`) in v0.2.
+
+---
+
+## NVIDIA-Native Agent Stack Alternative
+
+The v0.1 reference implementation uses the **Claude Agent SDK** for orchestration
+because it's the most mature general-purpose agent SDK at time of writing and it
+keeps the project independent of any single inference vendor. For an adopter
+that wants the agent layer itself running on NVIDIA tooling (e.g., an internal
+deploy that must keep code inside the org boundary), each layer has an NVIDIA-native
+counterpart:
+
+| Layer | v0.1 default | NVIDIA-native alternative |
+| --- | --- | --- |
+| Agent orchestration | Claude Agent SDK | **NVIDIA AIQ Toolkit** + NVIDIA AI Blueprints (Agent RAG / Multi-agent reference architectures) |
+| Tool calling | Claude / Azure OpenAI function-calling | **NIM-hosted function-calling LLMs** (Llama-3.x Nemotron, Mistral-Nemo NIMs) |
+| Memory / retrieval | Custom RAG over Elasticsearch | **NVIDIA NeMo Retriever** (multi-modal retriever models + reranker) |
+| Output safety | NeMo Guardrails (already used) | NeMo Guardrails (no change — already NVIDIA-native) |
+| Inference backend | Anthropic / Azure OpenAI | **NIM** (managed API) or **Triton + TensorRT-LLM** (self-hosted) |
+| Dev environment | Standard Python / VS Code | **NVIDIA AI Workbench** (containerized AI dev environment) |
+
+The model gateway (`src/models/gateway.py`) is already designed for this
+substitution — every backend implements the same `predict()` interface, so an
+adopter can swap the Claude judge for a NIM-served Nemotron with no caller-side
+changes. The architectural cost of going fully NVIDIA-native is essentially
+zero; the rollout cost is the engineering effort to provision the equivalents
+(AIQ Toolkit setup, NIM endpoint provisioning, NeMo Retriever index
+construction).
+
+This alternative is documented (rather than implemented as v0.1's default)
+because most adopters will want to start with the more familiar frontier-LLM
+path and migrate inward as their compliance / cost profile dictates.
 
 ---
 
