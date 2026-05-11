@@ -247,6 +247,88 @@ Production-target serving (Mistral-7B-v0.3 + Triton + NIM) requires a CUDA-capab
 
 ---
 
+## Inspired by Enterprise Engineering-Productivity Patterns
+
+This project is not invented from scratch — it integrates patterns the industry
+has been converging on for years. The combination is the contribution; each
+component reflects an established enterprise practice:
+
+- **PR-lifecycle automation** — automated reviewer routing, work-item linking,
+  PR-summary generation, and PR-velocity dashboards have become standard inside
+  large engineering orgs as PR throughput has grown.
+- **AI build-failure diagnosis** — pre-merge prediction of CI failures (and
+  post-merge root-cause assistance from logs, golden traces, and historical
+  incident matches) is an active investment area across hyperscalers.
+- **Security shift-left gates** — embedding a risk / security signal into the
+  PR check surface, rather than only at deployment time, has emerged as the
+  consensus design for high-velocity orgs that still want strong production
+  safety properties.
+- **Agentic-coding workflow telemetry** — as AI-assisted and agent-authored
+  PRs become common, distinguishing the author class and adjusting risk
+  scoring accordingly is a logical next step (see *AI-Generated PR Risk*
+  below).
+- **Reviewer / test recommendation systems** — using ownership signals, code
+  embedding similarity, and historical failure mining to *recommend* the right
+  human + the right tests, rather than running everything for every change.
+- **Engineering-reliability loops** — closing the loop from PR signal →
+  reviewer action → CI outcome → telemetry → model feedback, so the system
+  improves with use rather than ossifying around its training distribution.
+
+This project's contribution is a **single runnable artifact** that demonstrates
+these patterns composing — not novel patterns, but coherent integration.
+
+---
+
+## AI-Generated PR Risk (Roadmap)
+
+As AI-assisted and fully agent-authored PRs become a significant fraction of
+total PR volume, the *author class* itself becomes a useful risk signal. The
+v0.2 roadmap extends the scoring pipeline to capture this.
+
+### PR-author classification
+
+| Class | Definition |
+| --- | --- |
+| **human-only** | No AI assistance detectable in the PR's commit history. |
+| **AI-assisted** | Author used Copilot-style autocomplete; commits show human-paced editing. |
+| **agent-generated** | A full PR was authored by an agent (Copilot Agent, Devin-class systems, Claude Code, etc.) with the human acting as approver, not author. |
+
+Detection signals (combined):
+
+- Author identity (`actor.type == "Bot"` or known agent service accounts)
+- Commit-message style (formulaic, machine-typical)
+- Commit timing (humans pause to think; agents commit in bursts)
+- PR description / scope markers added by agent runners
+
+### Additional risk factors for agent-generated PRs
+
+A diff produced by an agent has a different risk profile from one produced by a
+human, even when both *look* similar. The agent-PR-specific factors:
+
+| Risk factor | Why it matters |
+| --- | --- |
+| **Files modified outside requested scope** | Agents over-edit when the prompt is imprecise; broad blast radius without intent. |
+| **Tests added but not behavior-covering** | Agents generate tests that exercise the new code path without asserting the intended behavior — passes CI, misses bugs. |
+| **Large mechanical refactor** | A 1000-line "format / rename" PR may be a real cleanup, or may be an agent thrashing on an unclear goal. |
+| **Missing human rationale** | No comment in commit message explaining *why* the change is correct — humans almost always include this; agents often omit. |
+| **Prompt-to-diff drift** | The PR description (often regenerated from the prompt) doesn't match the changes shipped. |
+
+### Why this matters now
+
+In 2026 the question *"who will review the AI's code?"* is no longer
+hypothetical — many engineering orgs already see double-digit percentages of
+PRs originating from agents. The agent producing the PR and the agent scoring
+it are two different agents with different incentives; that asymmetry is the
+opening for a tool like this.
+
+### Status
+
+This entire section is **roadmap-only** in v0.1. The classification stub lives
+behind `pr_metadata["author_class"]` in the harness API; the additional risk
+factors will be wired into a new sub-agent (`agent_pr_auditor`) in v0.2.
+
+---
+
 ## References
 
 *Full bibliography coming in v0.2.* Key sources to date:
@@ -260,4 +342,4 @@ Production-target serving (Mistral-7B-v0.3 + Triton + NIM) requires a CUDA-capab
 
 ---
 
-*— Mingdong (Eric) Tan, 2026-05-09*
+*— Mingdong (Eric) Tan, 2026-05-10*
