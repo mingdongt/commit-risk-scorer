@@ -131,8 +131,17 @@ This project is the integration that unifies all three. Internal big-tech equiva
 git clone https://github.com/mingdongt/commit-risk-scorer
 cd commit-risk-scorer
 pip install -e .                  # installs deps declared in pyproject.toml
-python -m src.agent.harness       # runs the harness demo on a hand-crafted diff
-pytest tests/                     # 9 unit tests, ~70 ms
+
+# Library demo — full sub-agents -> policy -> markdown PR comment pipeline
+python -m src.agent.harness
+
+# HTTP service — same pipeline behind a FastAPI endpoint
+uvicorn src.serving.api:app --port 8000
+#   GET  /health
+#   POST /score  { "diff": "...", "metadata": { "codeowners": {...} } }
+
+# Tests — 59 across agent / policy / explainer / API / red-team / audit-store
+pytest tests/
 ```
 
 ## Repository structure

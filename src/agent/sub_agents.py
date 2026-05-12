@@ -152,6 +152,21 @@ class OwnershipMapper(SubAgent):
         files: list[str] = stats.get("files", [])  # type: ignore[assignment]
         codeowners: dict[str, list[str]] = metadata.get("codeowners", {})
 
+        # If no CODEOWNERS was provided at all, this sub-agent has nothing to
+        # say — return a zero-confidence stub. We must not flag every file as
+        # "ownership gap" simply because the caller didn't pass the map; that
+        # turns a missing input into a permanent false positive.
+        if not codeowners:
+            return SubAgentReport(
+                sub_agent_name=self.name(),
+                observations={
+                    "status": "no codeowners provided",
+                    "files_analyzed": len(files),
+                },
+                risk_factors=[],
+                confidence=0.0,
+            )
+
         recommended_reviewers: set[str] = set()
         files_without_owner: list[str] = []
         per_file_owners: dict[str, list[str]] = {}
@@ -174,8 +189,6 @@ class OwnershipMapper(SubAgent):
                 f"bus-factor risk: a single owner covers all {len(files)} modified files"
             )
 
-        # Confidence is high when we have a clear answer (owners or clear gap),
-        # low when neither codeowners nor files were provided.
         if not files:
             confidence = 0.0
         elif recommended_reviewers or files_without_owner:
