@@ -141,7 +141,15 @@ uvicorn src.serving.api:app --port 8000
 #   GET  /health
 #   POST /score  { "diff": "...", "metadata": { "codeowners": {...} } }
 
-# Tests — 59 across agent / policy / explainer / API / red-team / audit-store
+# DORA impact dashboard — Streamlit (v0.1 simulated data; v0.2 reads audit-store)
+streamlit run src/metrics/dora_dashboard.py
+
+# Build the GitHub PR / CI training dataset (requires $GITHUB_TOKEN for useful volume)
+python -m src.data.scrape_github_prs --repos kubernetes/kubernetes django/django \
+    --max-prs-per-repo 100 --output data/raw/github_prs.jsonl
+
+# Tests — 86 across agent / policy / explainer / API / red-team / audit-store /
+#         scraper / dashboard / fine-tune
 pytest tests/
 ```
 
