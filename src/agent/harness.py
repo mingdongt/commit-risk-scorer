@@ -87,7 +87,9 @@ class AgentHarness:
         weighted_risk = (
             sum(r.confidence * (1.0 if r.risk_factors else 0.0) for r in reports) / total_weight
         )
-        n_factors = sum(len(r.risk_factors) for r in reports)
+        # Only count risk factors from confident sub-agents — zero-confidence
+        # stubs ("pending v0.2") must not move the production risk score.
+        n_factors = sum(len(r.risk_factors) for r in reports if r.confidence > 0)
         risk_score = max(0.0, min(1.0, weighted_risk + 0.05 * n_factors))
 
         return HarnessResult(

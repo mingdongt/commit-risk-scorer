@@ -46,6 +46,22 @@ class DiffAnalyzer(SubAgent):
     LARGE_FANOUT = 10
     LARGE_DIFF_LINES = 500
 
+    # Path prefixes that real platform teams treat as high-incident / security-
+    # sensitive areas. A change touching any of these is risk-bumped even when
+    # the diff itself is small. v0.2 learns this list per adopting team from
+    # their incident-postmortem history.
+    SENSITIVE_PATH_PREFIXES: tuple[str, ...] = (
+        "src/auth/",
+        "src/security/",
+        "src/billing/",
+        "src/payment/",
+        "src/crypto/",
+        "src/secret",       # secret_store, secrets/, etc.
+        "src/admin/",
+        "src/migrations/",  # schema changes have outsized blast radius
+        "config/",          # production config has outsized blast radius
+    )
+
     def name(self) -> str:
         return "diff-analyzer"
 
@@ -61,6 +77,20 @@ class DiffAnalyzer(SubAgent):
         if total_lines >= self.LARGE_DIFF_LINES:
             risk_factors.append(
                 f"very large diff: {total_lines} lines changed (threshold: {self.LARGE_DIFF_LINES})"
+            )
+
+        files: list[str] = stats.get("files", [])  # type: ignore[assignment]
+        sensitive_hits: list[str] = [
+            f for f in files if any(f.startswith(p) for p in self.SENSITIVE_PATH_PREFIXES)
+        ]
+        if sensitive_hits:
+            # Report which sensitive areas were touched, not the file list (cleaner UX).
+            touched_areas = sorted(
+                {p for p in self.SENSITIVE_PATH_PREFIXES if any(f.startswith(p) for f in sensitive_hits)}
+            )
+            risk_factors.append(
+                f"sensitive area touched: {len(sensitive_hits)} file(s) under "
+                f"{', '.join(touched_areas)} — historically high-incident path(s)"
             )
 
         # Confidence: this sub-agent has high signal when there ARE risk factors;
@@ -86,13 +116,16 @@ class TestImpactScout(SubAgent):
         return "test-impact-scout"
 
     def analyze(self, diff: str, metadata: dict[str, Any]) -> SubAgentReport:
+        # No risk_factors emitted from a stub — a "pending v0.2" note should not
+        # contribute to a real PR's risk score. The non-implemented status is
+        # surfaced in observations for audit/debugging.
         return SubAgentReport(
             sub_agent_name=self.name(),
             observations={
-                "status": "stub",
+                "status": "stub — pending v0.2 (coverage / test-impact-graph wiring)",
                 "tests_covering_modified_files": None,
             },
-            risk_factors=["test impact analysis pending v0.2"],
+            risk_factors=[],
             confidence=0.0,  # zero-weight until implemented
         )
 
@@ -109,14 +142,16 @@ class HistoricalContext(SubAgent):
         return "historical-context"
 
     def analyze(self, diff: str, metadata: dict[str, Any]) -> SubAgentReport:
+        # No risk_factors emitted from a stub. Status surfaced in observations
+        # for audit/debugging; not for risk-score aggregation.
         return SubAgentReport(
             sub_agent_name=self.name(),
             observations={
-                "status": "stub",
+                "status": "stub — pending v0.2 (Elasticsearch RAG over historical PRs)",
                 "similar_pr_ids": [],
                 "rag_index_size": 0,
             },
-            risk_factors=["RAG retrieval pending v0.2"],
+            risk_factors=[],
             confidence=0.0,
         )
 

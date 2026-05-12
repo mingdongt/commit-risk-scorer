@@ -16,8 +16,10 @@ client = TestClient(app)
 
 
 SMALL_DIFF = (
-    "--- a/src/auth/session.py\n"
-    "+++ b/src/auth/session.py\n"
+    # Non-sensitive path — DiffAnalyzer's SENSITIVE_PATH_PREFIXES does not match,
+    # so this exercises the "ordinary small diff → low risk" path cleanly.
+    "--- a/src/helpers/format.py\n"
+    "+++ b/src/helpers/format.py\n"
     "@@ -1 +1 @@\n"
     "-old\n"
     "+new\n"
@@ -25,7 +27,7 @@ SMALL_DIFF = (
 
 
 LARGE_DIFF = (
-    "--- a/src/auth/session.py\n+++ b/src/auth/session.py\n"
+    "--- a/src/helpers/format.py\n+++ b/src/helpers/format.py\n"
     "@@ -1,600 +1,600 @@\n"
     + "\n".join(f"-old_{i}\n+new_{i}" for i in range(600))
 )
@@ -68,7 +70,7 @@ def test_score_with_codeowners_returns_reviewers():
             "diff": SMALL_DIFF,
             "metadata": {
                 "codeowners": {
-                    "src/auth/": ["@security-team"],
+                    "src/helpers/": ["@helpers-team"],
                     "src/": ["@platform-team"],
                 }
             },
@@ -78,7 +80,8 @@ def test_score_with_codeowners_returns_reviewers():
     payload = r.json()
     reports_by_name = {r["name"]: r for r in payload["sub_agent_reports"]}
     om = reports_by_name["ownership-mapper"]
-    assert "@security-team" in om["observations"]["recommended_reviewers"]
+    # Longest-prefix match: src/helpers/ wins over src/
+    assert "@helpers-team" in om["observations"]["recommended_reviewers"]
 
 
 def test_score_large_diff_flags_fanout():

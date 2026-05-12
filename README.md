@@ -63,6 +63,23 @@ The risk score is **not the product** — the *action* is. Score feeds into a po
 
 Designed to run as a CI check on every PR — providing **pre-merge predictive signal that drives policy decisions**, not just numeric scores. See [`docs/evaluation.md`](docs/evaluation.md) for how each layer is measured and [`docs/enterprise-safety.md`](docs/enterprise-safety.md) for the production-safety controls.
 
+## Demo — three scenarios, end-to-end
+
+The repo ships a runnable demo that walks three real-shaped PRs through the
+full pipeline (`5 sub-agents → policy gatekeeper → markdown PR comment`). The
+captured output lives in [`demo/output.md`](demo/output.md); regenerate it
+with `python -m demo.run_demo > demo/output.md`.
+
+| Scenario | What it is | Risk score | Risk level | Action |
+| --- | --- | --- | --- | --- |
+| **A** | README typo fix by a regular contributor | 0.00 | 🟢 Low | `fast_track` |
+| **B** | 4-file refactor inside `src/auth/` (sensitive path), CODEOWNERS provided | 0.46 | 🟡 Medium | `owner_review` |
+| **C** | Bot-authored 8-file mechanical refactor; PR description claims paths absent from the diff (prompt-vs-diff drift) | 1.00 | 🔴 Critical | `block_merge` |
+
+The output that's posted on the PR is real markdown — see
+[`demo/output.md`](demo/output.md) for the verbatim agent comments for each
+scenario, including evidence and sub-agent reports.
+
 ## Why this exists
 
 Existing solutions occupy one corner of the design space:
