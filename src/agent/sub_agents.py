@@ -119,3 +119,91 @@ class HistoricalContext(SubAgent):
             risk_factors=["RAG retrieval pending v0.2"],
             confidence=0.0,
         )
+
+
+class OwnershipMapper(SubAgent):
+    """Maps the modified files to suggested reviewers based on code ownership
+    and historical commit / review patterns.
+
+    The agent's value here is not just "who owns this code" — it's identifying
+    *ownership gaps* (files no one owns) and *bus-factor risk* (one person owns
+    everything that just changed). Both are real risk factors that don't show
+    up in pure diff analysis.
+
+    Production target (v0.2): **NVIDIA Merlin** two-tower retrieval over
+    (file_path, reviewer_identity) pairs, with a reranker on file-content
+    similarity. Trained on the org's PR-review history (who reviewed what,
+    weighted by acceptance rate). Sub-millisecond GPU inference per PR.
+
+    v0.1 ships a CODEOWNERS-style lookup that:
+        - takes a {path_prefix: [owners]} map from metadata
+        - uses longest-prefix matching
+        - surfaces ownership-gap and bus-factor risk factors
+        - returns recommended reviewers in observations
+    """
+
+    def name(self) -> str:
+        return "ownership-mapper"
+
+    def analyze(self, diff: str, metadata: dict[str, Any]) -> SubAgentReport:
+        from src.agent.tools import git_diff_stats
+
+        stats = git_diff_stats(diff)
+        files: list[str] = stats.get("files", [])  # type: ignore[assignment]
+        codeowners: dict[str, list[str]] = metadata.get("codeowners", {})
+
+        recommended_reviewers: set[str] = set()
+        files_without_owner: list[str] = []
+        per_file_owners: dict[str, list[str]] = {}
+
+        for f in files:
+            owners = self._lookup_owner(f, codeowners)
+            per_file_owners[f] = owners
+            if owners:
+                recommended_reviewers.update(owners)
+            else:
+                files_without_owner.append(f)
+
+        risk_factors: list[str] = []
+        if files_without_owner:
+            risk_factors.append(
+                f"ownership gap: {len(files_without_owner)} file(s) without a declared code owner"
+            )
+        if len(recommended_reviewers) == 1 and len(files) >= 3:
+            risk_factors.append(
+                f"bus-factor risk: a single owner covers all {len(files)} modified files"
+            )
+
+        # Confidence is high when we have a clear answer (owners or clear gap),
+        # low when neither codeowners nor files were provided.
+        if not files:
+            confidence = 0.0
+        elif recommended_reviewers or files_without_owner:
+            confidence = 0.6
+        else:
+            confidence = 0.2
+
+        return SubAgentReport(
+            sub_agent_name=self.name(),
+            observations={
+                "files_analyzed": len(files),
+                "recommended_reviewers": sorted(recommended_reviewers),
+                "files_without_owner": files_without_owner,
+                "per_file_owners": per_file_owners,
+            },
+            risk_factors=risk_factors,
+            confidence=confidence,
+        )
+
+    @staticmethod
+    def _lookup_owner(file_path: str, codeowners: dict[str, list[str]]) -> list[str]:
+        """Longest-prefix match — mirrors how GitHub CODEOWNERS resolves."""
+        matches = [
+            (prefix, owners)
+            for prefix, owners in codeowners.items()
+            if file_path.startswith(prefix)
+        ]
+        if not matches:
+            return []
+        matches.sort(key=lambda x: -len(x[0]))
+        return list(matches[0][1])

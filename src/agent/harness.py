@@ -22,6 +22,7 @@ from typing import Any
 from src.agent.sub_agents import (
     DiffAnalyzer,
     HistoricalContext,
+    OwnershipMapper,
     SubAgent,
     SubAgentReport,
     TestImpactScout,
@@ -62,6 +63,7 @@ class AgentHarness:
     def __init__(self, sub_agents: list[SubAgent] | None = None):
         self.sub_agents = sub_agents or [
             DiffAnalyzer(),
+            OwnershipMapper(),
             TestImpactScout(),
             HistoricalContext(),
         ]
@@ -111,11 +113,25 @@ DEMO_DIFF = """\
 
 
 def _demo() -> None:
-    harness = AgentHarness()
-    result = harness.score(DEMO_DIFF, metadata={"author": "demo", "repo": "demo/repo"})
+    # Local imports — keep the demo as the only place that pulls in
+    # policy + explainer, so the harness module stays focused.
+    from src.agent.explainer import ExplanationWriter
+    from src.agent.policy import PolicyGatekeeper
 
-    print(f"Risk score: {result.risk_score:.2f}")
-    print()
+    harness = AgentHarness()
+    demo_metadata = {
+        "author": "demo",
+        "repo": "demo/repo",
+        # Minimal CODEOWNERS — exercises OwnershipMapper.
+        "codeowners": {
+            "src/auth/": ["@security-team", "@auth-owner"],
+            "src/": ["@platform-team"],
+        },
+    }
+    result = harness.score(DEMO_DIFF, metadata=demo_metadata)
+
+    print(f"=== Sub-agent reports ===")
+    print(f"Aggregated risk score: {result.risk_score:.2f}\n")
     for report in result.sub_agent_reports:
         print(f"[{report.sub_agent_name}] confidence={report.confidence:.2f}")
         if report.observations:
@@ -126,6 +142,15 @@ def _demo() -> None:
             for rf in report.risk_factors:
                 print(f"    - {rf}")
         print()
+
+    decision = PolicyGatekeeper().decide(result)
+    print(f"=== Policy decision ===")
+    print(f"Action:        {decision.action}")
+    print(f"Risk level:    {decision.risk_level}")
+    print(f"Rationale:     {decision.rationale}\n")
+
+    print(f"=== PR comment (markdown rendered by ExplanationWriter) ===")
+    print(ExplanationWriter().render(result, decision))
 
 
 if __name__ == "__main__":

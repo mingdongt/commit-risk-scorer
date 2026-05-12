@@ -78,15 +78,16 @@ This project is the integration that unifies all three. Internal big-tech equiva
 ## Architecture (in brief)
 
 ```
-                git diff + PR metadata
+                git diff + PR metadata (+ codeowners, history)
                           |
                           v
               +----------------------------+
               | Multi-Agent Harness        |
               |   (Claude Agent SDK)       |
-              |     - diff-analyzer        |
-              |     - test-impact-scout    |
-              |     - historical-context   |
+              |     - diff-analyzer        |  <- structural shape of the diff
+              |     - ownership-mapper     |  <- reviewers + bus-factor risk
+              |     - test-impact-scout    |  <- which tests cover the change
+              |     - historical-context   |  <- RAG over similar past PRs
               +-------------+--------------+
                             |
                             v
@@ -99,7 +100,14 @@ This project is the integration that unifies all three. Internal big-tech equiva
               +-------------+--------------+
                             |
                             v
-                Risk Score + Explanation
+              +----------------------------+
+              | Policy Gatekeeper          |  <- score -> action (4 bands)
+              |   + Explanation Writer     |  <- markdown PR comment
+              +-------------+--------------+
+                            |
+                            v
+                Risk Score + Reasoning + Action
+                + Audit Log (Mongo/MySQL/ES)
                 + DORA Impact Dashboard
 ```
 
