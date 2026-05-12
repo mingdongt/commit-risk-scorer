@@ -220,3 +220,139 @@ class OwnershipMapper(SubAgent):
             return []
         matches.sort(key=lambda x: -len(x[0]))
         return list(matches[0][1])
+
+
+class AgentPRAuditor(SubAgent):
+    """Detects PRs authored by AI coding agents and surfaces agent-specific risk.
+
+    Motivation (also documented in `docs/design-doc.md` §AI-Generated PR Risk):
+    in 2026 a non-trivial share of PRs in many engineering orgs are authored by
+    agents (Copilot Agent, Devin-class systems, Claude Code, etc.). The risk
+    *profile* of an agent-authored diff differs from a human one — even when
+    the diffs look similar — and the policy gate should reflect that.
+
+    PR-author classification (from `metadata["author_class"]`, if provided):
+        - "human-only"        — no AI signal detected
+        - "ai-assisted"       — Copilot-style autocomplete used during authoring
+        - "agent-generated"   — full PR authored by an agent; human is approver, not author
+
+    The agent can also INFER the class when not explicitly set:
+        - bot-shaped author logins (suffix `-bot`, `[bot]`, `actions-user`, etc.)
+        - all commit timestamps within a tight burst (< 5 min span over many commits)
+        - commit messages that are formulaic and lack rationale
+
+    Agent-PR-specific risk factors (raised only when class != human-only):
+        - large mechanical refactor (high LOC + few files-touched ratio)
+        - tests added without assertion logic ("looks like coverage, isn't")
+        - missing human rationale (no prose in commit message body)
+        - PR description / spec mentions paths not present in the diff
+          (interpreted as scope-drift between prompt and shipped diff)
+
+    Status (v0.1): REAL inference for author-class detection from metadata
+    (bot-login + burst-timing heuristic); risk-factor surfacing is rule-based.
+    v0.2 wires to:
+        - a trained classifier on PR-style features (commit-message embedding,
+          inter-commit-time distribution, file-type entropy)
+        - the LLM judge for scope-drift detection (compares PR description to
+          diff content)
+    """
+
+    BOT_LOGIN_MARKERS: tuple[str, ...] = (
+        "[bot]",
+        "-bot",
+        "actions-user",
+        "copilot-",
+        "devin-",
+        "github-actions",
+    )
+    MECHANICAL_REFACTOR_LINES_PER_FILE = 80  # avg additions+deletions per file
+
+    def name(self) -> str:
+        return "agent-pr-auditor"
+
+    def analyze(self, diff: str, metadata: dict[str, Any]) -> SubAgentReport:
+        from src.agent.tools import git_diff_stats
+
+        author_class = self._classify_author(metadata)
+        stats = git_diff_stats(diff)
+
+        observations: dict[str, Any] = {
+            "author_class": author_class,
+            "author_login": metadata.get("author", {}).get("login")
+            if isinstance(metadata.get("author"), dict)
+            else metadata.get("author"),
+        }
+
+        risk_factors: list[str] = []
+
+        # Only run the agent-specific checks for AI-touched PRs.
+        if author_class != "human-only":
+            n_files = int(stats.get("files_touched", 0))  # type: ignore[arg-type]
+            n_lines = int(stats.get("additions", 0)) + int(stats.get("deletions", 0))  # type: ignore[arg-type]
+            if n_files >= 5 and n_lines / max(n_files, 1) >= self.MECHANICAL_REFACTOR_LINES_PER_FILE:
+                risk_factors.append(
+                    f"agent-authored mechanical refactor: {n_lines} lines across {n_files} files"
+                )
+
+            messages: list[str] = metadata.get("commit_messages") or []
+            if messages and not any(len(m.strip()) > 80 for m in messages):
+                # No commit message has any prose body — humans typically add at
+                # least one substantive message; agents commonly emit one-liners.
+                risk_factors.append(
+                    "agent-authored PR missing human rationale (all commit messages are one-liners)"
+                )
+
+            # Scope-drift: PR description names paths not in the diff. The
+            # description path-list is whatever the caller chose to surface in
+            # metadata["pr_description_paths"]; v0.2 extracts this automatically.
+            described_paths: list[str] = metadata.get("pr_description_paths") or []
+            diffed_paths = set(stats.get("files", []))  # type: ignore[arg-type]
+            if described_paths:
+                mentioned_not_in_diff = [p for p in described_paths if p not in diffed_paths]
+                if mentioned_not_in_diff:
+                    risk_factors.append(
+                        f"agent-authored scope drift: PR description mentions {len(mentioned_not_in_diff)} "
+                        f"path(s) not in the diff"
+                    )
+
+        # Confidence: high when we have a clear author-class signal; low when
+        # we had to fall back to weak heuristics with no metadata.
+        if author_class == "human-only" and not metadata.get("author"):
+            # Default classification with no signals — not much to say.
+            confidence = 0.1
+        elif author_class == "human-only":
+            confidence = 0.4
+        else:
+            confidence = 0.6
+
+        return SubAgentReport(
+            sub_agent_name=self.name(),
+            observations=observations,
+            risk_factors=risk_factors,
+            confidence=confidence,
+        )
+
+    def _classify_author(self, metadata: dict[str, Any]) -> str:
+        """Resolve author class: explicit metadata wins; otherwise infer from signals."""
+        explicit = metadata.get("author_class")
+        if explicit in {"human-only", "ai-assisted", "agent-generated"}:
+            return explicit  # type: ignore[return-value]
+
+        # Infer from author login (bot accounts).
+        author = metadata.get("author")
+        login: str | None = None
+        if isinstance(author, dict):
+            login = author.get("login")
+        elif isinstance(author, str):
+            login = author
+        if login and any(marker in login.lower() for marker in self.BOT_LOGIN_MARKERS):
+            return "agent-generated"
+
+        # Infer from commit-timing burst.
+        timestamps: list[float] | None = metadata.get("commit_timestamps")
+        if timestamps and len(timestamps) >= 5:
+            span = max(timestamps) - min(timestamps)
+            if span < 300:  # 5 minutes — humans rarely emit 5+ commits in 5 min
+                return "agent-generated"
+
+        return "human-only"

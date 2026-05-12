@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.agent.sub_agents import (
+    AgentPRAuditor,
     DiffAnalyzer,
     HistoricalContext,
     OwnershipMapper,
@@ -64,6 +65,7 @@ class AgentHarness:
         self.sub_agents = sub_agents or [
             DiffAnalyzer(),
             OwnershipMapper(),
+            AgentPRAuditor(),
             TestImpactScout(),
             HistoricalContext(),
         ]

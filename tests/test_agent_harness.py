@@ -6,7 +6,13 @@ These are the seed for the regression-gated CI described in docs/design-doc.md
 from __future__ import annotations
 
 from src.agent.harness import AgentHarness, HarnessResult
-from src.agent.sub_agents import DiffAnalyzer, HistoricalContext, OwnershipMapper, TestImpactScout
+from src.agent.sub_agents import (
+    AgentPRAuditor,
+    DiffAnalyzer,
+    HistoricalContext,
+    OwnershipMapper,
+    TestImpactScout,
+)
 from src.agent.tools import git_diff_stats
 
 
@@ -125,6 +131,93 @@ def test_ownership_mapper_handles_empty_diff():
     assert report.risk_factors == []
 
 
+def test_agent_pr_auditor_detects_bot_login():
+    """A bot-shaped author login → classified as agent-generated."""
+    auditor = AgentPRAuditor()
+    report = auditor.analyze(
+        "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        metadata={"author": {"login": "copilot-coding[bot]"}},
+    )
+    assert report.observations["author_class"] == "agent-generated"
+
+
+def test_agent_pr_auditor_detects_commit_burst():
+    """5+ commits within 5 minutes → classified as agent-generated."""
+    auditor = AgentPRAuditor()
+    # 6 commits over 200 seconds — humans would take orders of magnitude longer
+    timestamps = [1000.0, 1050.0, 1100.0, 1150.0, 1180.0, 1200.0]
+    report = auditor.analyze(
+        "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        metadata={"commit_timestamps": timestamps},
+    )
+    assert report.observations["author_class"] == "agent-generated"
+
+
+def test_agent_pr_auditor_respects_explicit_class():
+    """Explicit author_class wins over heuristic inference."""
+    auditor = AgentPRAuditor()
+    report = auditor.analyze(
+        "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        metadata={
+            "author_class": "ai-assisted",
+            "author": {"login": "copilot-bot"},  # would otherwise infer agent-generated
+        },
+    )
+    assert report.observations["author_class"] == "ai-assisted"
+
+
+def test_agent_pr_auditor_flags_mechanical_refactor():
+    """Agent-authored diff with high lines-per-file ratio → mechanical-refactor risk."""
+    auditor = AgentPRAuditor()
+    # Build a diff with 6 files × ~100 lines each = ~600 lines total
+    diff_parts = []
+    for i in range(6):
+        diff_parts.append(f"--- a/src/m{i}.py\n+++ b/src/m{i}.py\n@@ -1,100 +1,100 @@\n")
+        diff_parts.extend(f"-old_{i}_{j}\n+new_{i}_{j}\n" for j in range(50))
+    diff = "".join(diff_parts)
+    report = auditor.analyze(diff, metadata={"author_class": "agent-generated"})
+    assert any("mechanical refactor" in rf for rf in report.risk_factors)
+
+
+def test_agent_pr_auditor_flags_missing_human_rationale():
+    """Agent-authored PR with only one-liner commit messages → missing-rationale risk."""
+    auditor = AgentPRAuditor()
+    report = auditor.analyze(
+        "--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        metadata={
+            "author_class": "agent-generated",
+            "commit_messages": ["fix typo", "wip", "update"],
+        },
+    )
+    assert any("missing human rationale" in rf for rf in report.risk_factors)
+
+
+def test_agent_pr_auditor_flags_scope_drift():
+    """PR description naming paths not in the diff → scope-drift risk."""
+    auditor = AgentPRAuditor()
+    report = auditor.analyze(
+        "--- a/src/foo.py\n+++ b/src/foo.py\n@@ -1 +1 @@\n-x\n+y\n",
+        metadata={
+            "author_class": "agent-generated",
+            "pr_description_paths": ["src/foo.py", "src/totally_unmodified.py"],
+        },
+    )
+    assert any("scope drift" in rf for rf in report.risk_factors)
+
+
+def test_agent_pr_auditor_silent_for_human_only():
+    """Agent-specific risk factors do not fire for human-authored PRs."""
+    auditor = AgentPRAuditor()
+    # Large mechanical-looking diff but human author → no agent risk factors
+    diff_parts = []
+    for i in range(6):
+        diff_parts.append(f"--- a/src/m{i}.py\n+++ b/src/m{i}.py\n@@ -1,100 +1,100 @@\n")
+        diff_parts.extend(f"-old\n+new\n" for _ in range(50))
+    diff = "".join(diff_parts)
+    report = auditor.analyze(diff, metadata={"author_class": "human-only"})
+    assert not any("agent-authored" in rf for rf in report.risk_factors)
+
+
 def test_harness_score_returns_valid_result():
     """Harness produces a HarnessResult with a valid risk score in [0, 1]."""
     harness = AgentHarness()
@@ -132,8 +225,9 @@ def test_harness_score_returns_valid_result():
     result = harness.score(diff)
     assert isinstance(result, HarnessResult)
     assert 0.0 <= result.risk_score <= 1.0
-    # Default sub-agent set is now 4 (diff-analyzer + ownership-mapper + 2 stubs)
-    assert len(result.sub_agent_reports) == 4
+    # Default sub-agent set is now 5
+    # (diff-analyzer + ownership-mapper + agent-pr-auditor + 2 stubs)
+    assert len(result.sub_agent_reports) == 5
 
 
 def test_harness_empty_diff_low_score():

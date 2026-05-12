@@ -325,9 +325,25 @@ opening for a tool like this.
 
 ### Status
 
-This entire section is **roadmap-only** in v0.1. The classification stub lives
-behind `pr_metadata["author_class"]` in the harness API; the additional risk
-factors will be wired into a new sub-agent (`agent_pr_auditor`) in v0.2.
+A v0.1 implementation of `AgentPRAuditor` ships in
+[`../src/agent/sub_agents.py`](../src/agent/sub_agents.py). It supports:
+
+- Author-class **inference** from a bot-shaped author login (`*[bot]`,
+  `*-bot`, `copilot-*`, `devin-*`, `github-actions`) or from a commit-timing
+  burst (≥ 5 commits within 5 minutes).
+- Explicit `metadata["author_class"]` override (always wins).
+- Three agent-PR-specific risk factors:
+  - **Mechanical refactor** — 5+ files × ≥ 80 lines/file average diff size.
+  - **Missing human rationale** — all commit messages are one-liners (no body).
+  - **Scope drift** — `metadata["pr_description_paths"]` names paths absent
+    from the diff (interpreted as prompt-vs-shipped-diff drift).
+
+v0.2 upgrades this to:
+
+- A trained classifier on PR-style features (commit-message embedding,
+  inter-commit-time distribution, file-type entropy).
+- LLM-judge-driven scope-drift detection that compares PR description text to
+  diff content semantically (not just by path string matching).
 
 ---
 

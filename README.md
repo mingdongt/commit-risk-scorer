@@ -86,6 +86,7 @@ This project is the integration that unifies all three. Internal big-tech equiva
               |   (Claude Agent SDK)       |
               |     - diff-analyzer        |  <- structural shape of the diff
               |     - ownership-mapper     |  <- reviewers + bus-factor risk
+              |     - agent-pr-auditor     |  <- detects AI-authored PRs + agent-specific risk
               |     - test-impact-scout    |  <- which tests cover the change
               |     - historical-context   |  <- RAG over similar past PRs
               +-------------+--------------+
