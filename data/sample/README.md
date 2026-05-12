@@ -46,10 +46,28 @@ fine-tuning.
 | `additions`, `deletions` | int | Line counts |
 | `diff` | string | Unified diff text |
 
+## Known data-quality caveats
+
+Public CI outcome is a noisy ground-truth signal. When using this data — or a
+scaled-up scrape — for training, be aware:
+
+- **`ci_outcome: "failed"` is not equivalent to "the commit is bad."** It conflates
+  real defects with flaky tests, infrastructure outages, upstream dependency
+  churn, and bugs in the test itself.
+- **`ci_outcome: "unknown"` is common.** Many older PRs predate GitHub Actions or
+  use external CI providers whose status isn't exposed via the GitHub API.
+- **`merged: false` doesn't always mean "rejected for quality."** PRs are closed
+  for many reasons — superseded, abandoned, scope changes — none of which signal
+  a bad change.
+- **The `diff` field can be very large** (up to several MB for refactor PRs).
+  Truncate or chunk before feeding to a model with a fixed context window.
+
+Full discussion of data limitations in [`docs/limitations.md`](../../docs/limitations.md).
+
 ## Production scale
 
 The labeled training set used for the production fine-tune target (Mistral-7B-v0.3
 on NVIDIA NeMo + LoRA — see [`src/models/finetune/train_nemo.py`](../../src/models/finetune/train_nemo.py))
 is a larger scrape of ~1k PRs across higher-volume repos (kubernetes/kubernetes,
-django/django). That dataset lives in `data/raw/` and is gitignored — regenerate
-with the command shown above using a `GITHUB_TOKEN`.
+django/django, pytorch/pytorch). That dataset lives in `data/raw/` and is
+gitignored — regenerate with the command shown above using a `GITHUB_TOKEN`.
