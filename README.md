@@ -90,7 +90,34 @@ Existing solutions occupy one corner of the design space:
 | CodeBERT / [Devign](https://github.com/microsoft/CodeXGLUE) | Trained classifier | No reasoning or agent integration |
 | [NVIDIA Garak](https://github.com/NVIDIA/garak) | LLM red-teaming | Not specialized for code-review agents |
 
-This project is the integration that unifies all three. Internal big-tech equivalents (Google Tricorder, Meta Sapienz, Microsoft TestImpact, Amazon CodeGuru) exist at scale but are closed-source — this project bridges that open-source gap. See [`docs/design-doc.md`](docs/design-doc.md) for full motivation, prior art comparison, architectural trade-offs, and honest caveats.
+This project is the integration that unifies all three. Adjacent big-tech tools cover individual quadrants — Google Tricorder for static analysis, Meta Sapienz / Getafix for test generation and automated repair, Microsoft TestImpact for test selection, Microsoft CloudBuild for traditional-ML build-failure prediction, Amazon CodeGuru and GitHub Copilot Code Review for generative review — but **none combines predictive scoring + LLM agent orchestration + commit-history RAG in a single open-source artifact**. Academically the predictive side is well established (DeepJIT, CC2Vec, JITLine, PROMISE benchmark), but no open-source project integrates it with the rest.
+
+The landscape mapped to four quadrants:
+
+```
+                          Predictive
+                              ▲
+                              │
+           ┌──────────────────┼──────────────────┐
+           │  MS CloudBuild   │  THIS PROJECT    │
+           │  failure-pred    │  commit-risk-    │
+           │  MS TestImpact   │  scorer          │
+           │  (classical ML)  │  (LLM + RAG +    │
+           │                  │   agent)         │
+           ├──────────────────┼──────────────────┤
+           │  Google          │  PR-Agent        │
+           │  Tricorder       │  GH Copilot      │
+           │  (rule-based     │  Code Review     │
+           │   static)        │  AWS CodeGuru    │
+           │                  │  (generative)    │
+           └──────────────────┼──────────────────┘
+                              ▼
+                   Reactive / Generative
+
+          ◄─── Rules / Static          LLM / RAG ───►
+```
+
+The **top-right quadrant** — *predictive + LLM/RAG/agent-driven* — is the unoccupied space this project fills. See [`docs/design-doc.md`](docs/design-doc.md) §*Why This Gap Exists* for the full prior-art breakdown and honest caveats.
 
 ## Architecture (in brief)
 

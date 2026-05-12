@@ -66,17 +66,29 @@ The integration this project performs — hybrid predictive pipeline + LLM agent
 
 Four reasons, in order of importance:
 
-### 1. Big-tech equivalents exist — they're just not open-sourced
+### 1. Adjacent tools exist in big-tech — but not this specific combination
 
-Internal commit-risk and build-failure-prediction tooling has existed at scale for years:
+The engineering-productivity AI space at scale contains several production tools, each occupying a different quadrant of the design space. They are *not* equivalents of this project — they solve adjacent problems:
 
-- **Google** — Tricorder (static analysis + risk-flagging on changelists)
-- **Meta** — Sapienz / Getafix (test generation + automated repair)
-- **Microsoft** — TestImpact, internal CloudBuild failure prediction
-- **Amazon** — CodeGuru Reviewer (commercialized as paid SaaS)
-- **GitHub** — Copilot Workspace / Code Review (closed product)
+| Tool | Actual category | Public status |
+| --- | --- | --- |
+| Google Tricorder | Static analysis platform (rule-based) | Paper-public, code closed |
+| Meta Sapienz | Search-based test generation | Paper-public, code closed |
+| Meta Getafix | Automated bug repair | Paper-public, code closed |
+| Microsoft TestImpact | Test selection / impact analysis | Internal |
+| Microsoft CloudBuild fail-pred | Traditional-ML build-failure prediction | Internal / paper |
+| Amazon CodeGuru Reviewer | ML-based PR review (SaaS) | Closed product |
+| GitHub Copilot Code Review | Generative LLM review | Closed product |
 
-The gap is in *open-source* tooling, not in *industry knowledge*. Big-tech treats this class of tool as competitive-advantage infrastructure rather than an ecosystem contribution.
+None of these has the same shape as this project:
+
+- **Static analysis tools** (Tricorder) are rule-based, not predictive.
+- **Test generation / repair** (Sapienz, Getafix) tackle different parts of the lifecycle.
+- **Test selection** (TestImpact) is commit-aware but answers *"which tests to run"*, not *"how risky is this change"*.
+- **Build-failure prediction** (MS CloudBuild) is the closest functional analog but uses traditional ML, not LLM agents or commit-history RAG.
+- **Generative review** (CodeGuru, Copilot Code Review, PR-Agent) is reactive prose, not a calibrated predictive score.
+
+The specific combination this project ships — **predictive scoring + LLM agent orchestration + commit-history RAG + NVIDIA-native serving** — sits in an unoccupied quadrant. Academically the predictive side is well established (DeepJIT, CC2Vec, JITLine, PROMISE benchmark), but no open-source artifact integrates it with the rest. See the README §*Why this exists* for the quadrant diagram.
 
 ### 2. The data is genuinely noisy — but the field is not new
 
