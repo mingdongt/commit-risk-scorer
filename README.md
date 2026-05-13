@@ -6,13 +6,7 @@
 
 > A **shift-left engineering intelligence agent** that predicts PR risk, recommends **reviewer / test / gate actions**, and **closes the loop** through CI, telemetry, and DORA-style engineering metrics. Built on NVIDIA's open AI stack with a hybrid predictive pipeline (FT classifier + LLM judge).
 
-## Why I built this
-
-Two reasons, both honest:
-
-1. **There's a real gap in open-source tooling.** Generative LLM PR reviewers (PR-Agent) and trained predictive defect models (CodeBERT family) sit in different corners; no current OSS project integrates them with platform-team operating discipline. This project ships that integration.
-
-2. **The artifact is the proof; the learning is part of the value.** Building this requires hands-on familiarity with NVIDIA's open AI stack (NeMo, Triton, NIM, Garak, NeMo Guardrails) and the rhythm of internal platform teams (eval-gated CI, runbooks, postmortems, partner-team onboarding). The motivation is candid — this is both a working artifact for adopting teams and a public showcase of how I approach enterprise AI tooling.
+> 📚 **New here?** See [`docs/README.md`](docs/README.md) — a documentation index organized by audience (hiring manager / engineer / adopter) and by time available (5 / 15 / 30 / 60 min). It's the recommended entry point for anyone going deeper than this README.
 
 ## What it does
 
@@ -23,7 +17,7 @@ Two reasons, both honest:
 1. **Risk score** (0–100) and **risk level** (Low / Medium / High / Critical)
 2. **Top risk factors** — evidence-backed (file-ownership gaps, weak test coverage, historically failing areas, deployment blast radius)
 3. **Recommended actions** — reviewer assignment, test suite to run, gate decision (not just a numeric signal)
-4. **DORA-style impact telemetry** — cycle time, change failure rate, MTTR, adoption, FP/FN feedback
+4. **DORA-style impact telemetry** — cycle time, change failure rate, MTTR, adoption, FP/FN feedback. *(OSS deployment uses a DORA-aligned eval harness with replayed / simulated data — real impact numbers require deployment in a real org. Disclosed in [`docs/limitations.md`](docs/limitations.md) §9 and [`docs/metrics.md`](docs/metrics.md) §Estimation honesty.)*
 
 The risk score is **not the product** — the *action* is. Score feeds into a policy decision surface:
 
@@ -80,9 +74,16 @@ The output that's posted on the PR is real markdown — see
 [`demo/output.md`](demo/output.md) for the verbatim agent comments for each
 scenario, including evidence and sub-agent reports.
 
-## Why this exists
+## Why this project exists
 
-Existing solutions occupy one corner of the design space:
+**Motivation.** Built as both a working tool and a public showcase of how I
+approach enterprise AI tooling. The artifact requires hands-on engagement with
+NVIDIA's open AI stack (NeMo, Triton, NIM, Garak, NeMo Guardrails) and the
+operating discipline of internal platform teams (eval-gated CI, runbooks,
+postmortems, partner-team onboarding). Honest framing in
+[`docs/notes/why-this-project.md`](docs/notes/why-this-project.md).
+
+**Market positioning.** Existing solutions occupy one corner of the design space:
 
 | Tool | Approach | Limitation |
 | --- | --- | --- |
@@ -249,26 +250,26 @@ pytest tests/
 
 Two pipelines have been validated end-to-end on subsamples of CodeXGLUE Devign. The point of this section is *pipeline validation* and *trade-off surfacing*, not capability claims — see *Production target* below for the meaningful comparison.
 
-| Metric | DistilBERT + LoRA (HF PEFT smoke) | cuML GBDT baseline (sklearn-fallback) |
-| --- | --- | --- |
-| F1 | 0.383 | **0.436** |
-| Precision | 0.368 | **0.494** |
-| Recall | **0.398** | 0.390 |
-| Accuracy | 0.473 | **0.570** |
-| AUC-ROC | 0.466 | **0.545** |
+| | DistilBERT + LoRA (HF PEFT smoke) | cuML GBDT baseline (sklearn-fallback) | Mistral-7B-v0.3 + LoRA via NeMo (production target) |
+| --- | --- | --- | --- |
+| **Status** | ✅ Validated, CPU smoke | ✅ Validated, CPU fallback | ⏳ Pending CUDA + base-model conversion |
+| F1 | 0.383 | **0.436** | — |
+| Precision | 0.368 | **0.494** | — |
+| Recall | **0.398** | 0.390 | — |
+| Accuracy | 0.473 | **0.570** | — |
+| AUC-ROC | 0.466 | **0.545** | — |
 
-- DistilBERT LoRA: 300 examples/split, 1 epoch, ~740 K trainable params (rank-8). CPU only.
-- GBDT baseline: 500 examples/split, 10 engineered features (LOC, alloc/free, pointer arithmetic, branch/loop counts, etc.). CPU sklearn fallback (the script auto-detects RAPIDS cuML on a CUDA box).
+- **DistilBERT LoRA**: 300 examples/split, 1 epoch, ~740 K trainable params (rank-8). CPU only.
+- **GBDT baseline**: 500 examples/split, 10 engineered features (LOC, alloc/free, pointer arithmetic, branch/loop counts, etc.). CPU sklearn fallback (the script auto-detects RAPIDS cuML on a CUDA box).
+- **Mistral-7B-v0.3 production target**: full Devign + ~1 k self-labeled GitHub PR/CI scrapes, followed by **TensorRT-LLM engine compilation** for Triton serving. Code in [`src/models/finetune/train_nemo.py`](src/models/finetune/train_nemo.py); blocked on CUDA environment.
 
 **Findings**:
 
 - On this subsample size, **the engineered-feature GBDT beats the LoRA-tuned DistilBERT** on F1, precision, accuracy, and AUC-ROC. The baseline existing isn't a defect — it's the point: simple features go a long way on small data, and DistilBERT is the wrong base (not pre-trained on code; ~300 samples insufficient).
 - DistilBERT AUC-ROC at 0.466 is below random; GBDT at 0.545 is the first sign of real discriminative signal.
-- **Implication for production**: don't use DistilBERT. The Mistral-7B-v0.3 path via NeMo (full dataset + code-pretrained base) is the right next step. The GBDT remains useful as a fast classifier ensemble component.
+- **Implication for production**: don't use DistilBERT. The Mistral-7B-v0.3 path via NeMo (full dataset + code-pretrained base) is the right next step. The GBDT remains useful as a fast classifier ensemble component — and is the always-on T1 gate in the [Tiered Router](docs/design-doc.md#tier-breakdown).
 
 Raw metrics: [`data/models/smoke/smoke_metrics.json`](data/models/smoke/smoke_metrics.json) · [`data/models/baselines/cuml_gbdt_metrics.json`](data/models/baselines/cuml_gbdt_metrics.json).
-
-**Production target**: NVIDIA NeMo + LoRA + Mistral-7B-v0.3 on full Devign + ~1 k self-labeled GitHub PR/CI scrapes, followed by **TensorRT-LLM engine compilation** for Triton serving. Code in [`src/models/finetune/train_nemo.py`](src/models/finetune/train_nemo.py); pending CUDA environment + base-model conversion.
 
 ## Status
 

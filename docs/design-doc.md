@@ -88,7 +88,7 @@ None of these has the same shape as this project:
 - **Build-failure prediction** (MS CloudBuild) is the closest functional analog but uses traditional ML, not LLM agents or commit-history RAG.
 - **Generative review** (CodeGuru, Copilot Code Review, PR-Agent) is reactive prose, not a calibrated predictive score.
 
-The specific combination this project ships — **predictive scoring + LLM agent orchestration + commit-history RAG + NVIDIA-native serving** — sits in an unoccupied quadrant. Academically the predictive side is well established (DeepJIT, CC2Vec, JITLine, PROMISE benchmark), but no open-source artifact integrates it with the rest. See the README §*Why this exists* for the quadrant diagram.
+The specific combination this project ships — **predictive scoring + LLM agent orchestration + commit-history RAG + NVIDIA-native serving** — sits in an unoccupied quadrant. Academically the predictive side is well established (DeepJIT, CC2Vec, JITLine, PROMISE benchmark), but no open-source artifact integrates it with the rest. See the README §*Why this project exists* for the quadrant diagram.
 
 ### 2. The data is genuinely noisy — but the field is not new
 

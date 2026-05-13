@@ -110,7 +110,7 @@ This project demonstrates **architectural viability** with public data and the N
 A few things this project has been asked about that *are* solid:
 
 - **The architecture pattern** (hybrid classifier + LLM judge + RAG) is well-supported by literature (DeepJIT, CC2Vec, JITLine, JIT-QA benchmarks).
-- **The 4-quadrant differentiation analysis** ([README](../README.md) §*Why this exists*) is accurate — adjacent tools verified by paper / public docs.
+- **The 4-quadrant differentiation analysis** ([README](../README.md) §*Why this project exists*) is accurate — adjacent tools verified by paper / public docs.
 - **The 86-test green build, 3-scenario demo, and platform-team documentation suite** reflect real engineering discipline, not marketing surface area.
 - **The Apache 2.0 license alignment** with the NVIDIA open-source AI stack is deliberate and well-formed.
 
