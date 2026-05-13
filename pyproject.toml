@@ -50,6 +50,9 @@ dependencies = [
     "uvicorn>=0.29",
     # Dashboard
     "streamlit>=1.32",
+    # LLM judge (Anthropic Claude API — used by ClaudeJudgeBackend)
+    "anthropic>=0.40",
+    "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]

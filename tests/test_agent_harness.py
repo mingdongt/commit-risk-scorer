@@ -247,3 +247,81 @@ def test_harness_serializable():
     json.dumps(payload)  # raises if anything is non-serializable
     assert payload["risk_score"] is not None
     assert isinstance(payload["sub_agent_reports"], list)
+
+
+# ---------------------------------------------------------------------------
+# Harness + LLM judge wiring (Tier 2)
+# ---------------------------------------------------------------------------
+
+
+class _StubJudge:
+    """Records the PredictionRequest it received and returns a canned verdict."""
+
+    def __init__(self, *, risk_score=0.81, reasoning="canned-judge-reasoning", raise_exc=None):
+        self._risk_score = risk_score
+        self._reasoning = reasoning
+        self._raise = raise_exc
+        self.last_request = None
+
+    def predict(self, request):
+        self.last_request = request
+        if self._raise is not None:
+            raise self._raise
+        # Mimic the PredictionResponse surface the harness reads.
+        return type(
+            "R",
+            (),
+            {"risk_score": self._risk_score, "reasoning": self._reasoning},
+        )()
+
+
+def test_harness_uses_judge_score_when_injected():
+    """With a judge injected, the harness returns the judge's score, not the heuristic."""
+    judge = _StubJudge(risk_score=0.81, reasoning="auth-predicate weakened")
+    harness = AgentHarness(judge_backend=judge)
+    diff = (
+        "--- a/src/auth/session.py\n+++ b/src/auth/session.py\n"
+        "@@ -1 +1 @@\n-old\n+new\n"
+    )
+    result = harness.score(diff)
+
+    assert result.risk_score == 0.81
+    assert result.reasoning == "auth-predicate weakened"
+    # sub-agent reports are still attached (harness did not skip them)
+    assert len(result.sub_agent_reports) == 5
+
+
+def test_harness_forwards_sub_agent_reports_to_judge():
+    """The PredictionRequest the judge sees must include dict-shaped sub-agent reports."""
+    judge = _StubJudge()
+    harness = AgentHarness(judge_backend=judge)
+    harness.score("--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n")
+
+    req = judge.last_request
+    assert req is not None
+    assert len(req.sub_agent_reports) == 5
+    # Each report must be a dict with the four canonical keys.
+    for report in req.sub_agent_reports:
+        assert set(report.keys()) == {"name", "confidence", "observations", "risk_factors"}
+    names = {r["name"] for r in req.sub_agent_reports}
+    assert {"diff-analyzer", "ownership-mapper", "agent-pr-auditor"} <= names
+
+
+def test_harness_falls_back_to_heuristic_on_judge_failure():
+    """A judge that raises must not break the CI step — fall back to heuristic + log."""
+    judge = _StubJudge(raise_exc=RuntimeError("transient API blip"))
+    harness = AgentHarness(judge_backend=judge)
+    result = harness.score("--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n")
+
+    # Heuristic score is still valid + reasoning records the fallback reason.
+    assert 0.0 <= result.risk_score <= 1.0
+    assert result.reasoning is not None
+    assert "judge unavailable" in result.reasoning
+    assert "transient API blip" in result.reasoning
+
+
+def test_harness_without_judge_preserves_v0_1_behavior():
+    """No judge injected → reasoning stays None, score is the heuristic. v0.1 unchanged."""
+    harness = AgentHarness()
+    result = harness.score("--- a/foo.py\n+++ b/foo.py\n@@ -1 +1 @@\n-x\n+y\n")
+    assert result.reasoning is None

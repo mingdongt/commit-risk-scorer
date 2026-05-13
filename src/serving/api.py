@@ -10,12 +10,28 @@ Endpoints:
 Run locally:
     uvicorn src.serving.api:app --port 8000
 
-The service is intentionally simple in v0.1 — no auth, no rate limiting, no
-queueing. v0.2 layers in: Bearer-token auth (per-org), per-PR idempotency keys,
+The service is intentionally simple in v0.2 — no auth, no rate limiting, no
+queueing. v0.3 layers in: Bearer-token auth (per-org), per-PR idempotency keys,
 audit-store writes (see `src/storage/audit_store.py`), and OpenTelemetry traces.
+
+LLM judge wiring
+----------------
+The Claude LLM judge is opt-in via two env vars to keep the service runnable
+on a fresh checkout without an API key:
+
+    CRS_ENABLE_JUDGE=1      enable the judge backend
+    ANTHROPIC_API_KEY=...   required when CRS_ENABLE_JUDGE=1
+
+When the judge is disabled, /score returns the heuristic risk score and
+`judge_reasoning` is null. When enabled, the harness escalates each request
+to the judge and uses its calibrated verdict; on transient judge failures
+the harness falls back to the heuristic and `judge_reasoning` carries the
+fallback message.
 """
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -25,6 +41,9 @@ from src import __version__
 from src.agent.explainer import ExplanationWriter
 from src.agent.harness import AgentHarness
 from src.agent.policy import PolicyGatekeeper
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +86,43 @@ class ScoreResponse(BaseModel):
     recommended_steps: list[str]
     sub_agent_reports: list[SubAgentReportSchema]
     pr_comment_markdown: str | None  # None when render_markdown=False
+    judge_reasoning: str | None  # Populated when CRS_ENABLE_JUDGE=1; null otherwise.
+    judge_enabled: bool
 
 
 class HealthResponse(BaseModel):
     status: str
     version: str
+    judge_enabled: bool
+
+
+# ---------------------------------------------------------------------------
+# Optional Claude judge construction
+# ---------------------------------------------------------------------------
+
+
+def _maybe_build_judge() -> Any | None:
+    """Construct ClaudeJudgeBackend only when explicitly enabled.
+
+    Returns None — and logs a single info-level message — when the judge is
+    disabled, so the service still starts cleanly on environments without an
+    Anthropic API key (laptop demos, CI smoke runs).
+    """
+    if os.environ.get("CRS_ENABLE_JUDGE") != "1":
+        logger.info("Claude judge disabled (CRS_ENABLE_JUDGE != '1').")
+        return None
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.warning(
+            "CRS_ENABLE_JUDGE=1 but ANTHROPIC_API_KEY is not set; "
+            "judge will not be constructed."
+        )
+        return None
+    # Lazy import — keeps `anthropic` out of the import graph when the judge
+    # is disabled, so the service is light on cold start in that mode.
+    from src.models.gateway import ClaudeJudgeBackend  # noqa: PLC0415
+
+    logger.info("Claude judge enabled.")
+    return ClaudeJudgeBackend()
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +140,16 @@ app = FastAPI(
 
 
 # These are constructed once per process. They're stateless and thread-safe.
-_HARNESS = AgentHarness()
+_JUDGE = _maybe_build_judge()
+_HARNESS = AgentHarness(judge_backend=_JUDGE)
 _POLICY = PolicyGatekeeper()
 _EXPLAINER = ExplanationWriter()
+_JUDGE_ENABLED = _JUDGE is not None
 
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", version=__version__)
+    return HealthResponse(status="ok", version=__version__, judge_enabled=_JUDGE_ENABLED)
 
 
 @app.post("/score", response_model=ScoreResponse)
@@ -125,4 +178,6 @@ def score(request: ScoreRequest) -> ScoreResponse:
             for r in result.sub_agent_reports
         ],
         pr_comment_markdown=comment,
+        judge_reasoning=result.reasoning,
+        judge_enabled=_JUDGE_ENABLED,
     )
