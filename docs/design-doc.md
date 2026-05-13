@@ -1,6 +1,6 @@
 # commit-risk-scorer — Design Document
 
-> Status: **Draft v0.2** — last updated 2026-05-10.
+> Status: **Draft v0.3** — last updated 2026-05-12.
 >
 > This document captures motivation, prior art, design decisions, and eval methodology for `commit-risk-scorer`. It is the constitution of the project; code references and matches it.
 
@@ -183,17 +183,101 @@ Confirmed key references (full survey in v0.2):
 
 ## Architecture
 
-*Component diagram and data flow coming in v0.2.* Sketched in [README.md](../README.md#architecture-in-brief).
+The system is a **tiered router** that escalates expensive computation only when cheap signals warrant it. The same architecture maps 1:1 to the JD's five "What you'll be doing" bullets and the three "Ways to stand out" differentiators.
 
-Key components:
+### Tier breakdown
 
-- **Agent harness** — Claude Agent SDK with three sub-agents (`diff-analyzer`, `test-impact-scout`, `historical-context`).
-- **Multi-vendor gateway** — single `predict()` API across Claude, NVIDIA NIM, Triton-served NeMo fine-tune, and Azure OpenAI.
-- **Predictive classifier** — Mistral-7B-v0.3 (Apache 2.0 base) fine-tuned via NeMo + LoRA on CodeXGLUE Devign + self-labeled GitHub PR/CI outcomes; compiled to a **TensorRT-LLM engine** via `trtllm-build` for low-latency Triton serving.
-- **Classical-ML baseline** — NVIDIA RAPIDS **cuML GBDT** on engineered commit features (LOC, alloc/free, branch/loop counts, etc.); reported alongside the LLM path so the design surfaces *when classical wins*. See [`../src/models/baselines/cuml_gbdt.py`](../src/models/baselines/cuml_gbdt.py).
-- **RAG layer** — Elasticsearch index of historical PRs with embeddings, retrieved as judge context.
-- **Audit / persistence** — Multi-backend audit log (MongoDB / MySQL / Elasticsearch) plus optional Tee mirroring; required by `enterprise-safety.md` Control 6.
-- **Safety layer** — NeMo Guardrails for output constraints; Garak probes in eval CI.
+| Tier | Component | Triggered for | Output | Target latency | Target cost/call |
+|---|---|---|---|---|---|
+| **T1** | Classical-ML gate — **cuML GBDT** (sklearn fallback) on 30–50 engineered commit features | 100% of PRs | `risk_score_1` + SHAP top-3 | <10 ms | ~$0 |
+| **T2** | Fine-tuned LLM classifier — **Mistral-7B-v0.3 + LoRA via NVIDIA NeMo**, served on Triton | `risk_score_1 ≥ 0.6` (~20% of PRs) | `risk_score_2` (calibrated) + structured risk tags | 1–3 s | ~$0.001 (local inference) |
+| **T3** | Agentic RAG — **Claude Sonnet 4.6** with multi-source enterprise RAG gateway | `risk_score_2 ≥ 0.8` (~5% of PRs) | `risk_score_3` + NL report + cited evidence | 10–30 s | ~$0.05–0.20 |
+| **T4** | Feedback loop — nightly job mining `(prediction, merge outcome, revert/incident link)` | Continuous, asynchronous | Retrain artifact for T1; calibration update for T2 | N/A | N/A |
+
+**Routing invariant:** every PR stops at the lowest tier that produces a confident answer. The 95% of low-risk PRs never invoke an LLM. This is the system's operating-cost floor and the reason a hosted deployment is economically viable at large-org PR volume.
+
+### Threshold calibration
+
+Thresholds (0.6 / 0.8 in the table) are **operationally tunable** and derived from cost-balance economics:
+
+- **T1→T2 threshold (0.6):** chosen so the expected cost of a false-negative at T1 (subsequent incident cost × P[bug | s1<θ]) equals the cost of invoking T2. Re-calibrated weekly from `FeedbackLog`.
+- **T2→T3 threshold (0.8):** same logic against T3's higher cost. Both thresholds are exposed as deployment config, not hardcoded.
+
+Documented in [`runbook.md`](runbook.md) under "Tuning operating thresholds".
+
+### Hybrid scoring — how scores compose across tiers
+
+**(Closes Open Question §1: "should the judge see the FT classifier's score before reasoning, or operate independently?")**
+
+The composition is **sequential, not parallel**: T2 sees T1's score and SHAP factors as conditioning context; T3 sees T2's score and risk tags. This is preferred over independent-then-combine because:
+
+1. **Calibration coherence** — each stage refines the prior rather than re-derives it from scratch, avoiding double-counting structural signals.
+2. **Cost discipline** — independent invocation would force every tier to look at every PR; sequential conditioning makes early-exit possible.
+3. **Explainability chain** — the final reasoning trace is a stack of refinements (`GBDT said X → FT said Y because Z → Agent verified via tools A, B`), which reviewers can audit.
+
+The trade-off: T2/T3 are slightly biased by T1's view of the world. This is mitigated by (a) T2/T3 receiving the **full diff** independently, not just T1's score, and (b) T4's feedback loop catching systematic miscalibration over time.
+
+### Multi-source enterprise RAG taxonomy (consumed by T3)
+
+The JD's stand-out criterion of *"RAG and fine-tuning LLMs on enterprise data"* requires more than a similar-PR search. Real enterprise knowledge bases are heterogeneous; T3's RAG gateway dispatches across three retrieval layers, each with distinct chunking, embedding, and ranking strategies.
+
+| Layer | Frequency | Source type | Examples | Retrieval strategy |
+|---|---|---|---|---|
+| **A. Code-adjacent operational data** | Always-on (every T3 call) | High-S/N structured signals | Past PRs + review comments, incident/postmortem store, CODEOWNERS + on-call, ADRs, build-failure RCA, dependency security advisories, coding standards | Voyage-Code-3 or CodeBERT-class embeddings + BM25 hybrid; commit-level chunking |
+| **B. Operational context** | Metadata-triggered (e.g., diff touches oncall-critical service) | Time-series / tabular | Release calendar / freeze windows, on-call rotation + leave, feature-flag state, SLA & cost data, re-org / ownership transitions | Structured queries (SQL / KV lookup) augmented by light vector search; entity-level chunking |
+| **C. Cross-functional enterprise knowledge** | LLM-judged (T3 agent decides based on diff semantics) | Heterogeneous prose / policy / domain | PRDs / roadmaps, compliance docs (GDPR / SOC2 / export control), customer-support themes / VoC, vendor contracts, strategic & OKR docs, internal Slack/Teams decision archives, **NVIDIA-specific domain KB** (hardware spec, ASIL automotive safety, GPU driver compat) | Long-context text embedding (general-purpose, not code-specialized) + cross-encoder re-ranker + strict provenance tracking |
+
+**Design principle:** each layer is a pluggable retriever interface. OSS-mode implementations use public-data proxies (GitHub issues for "incidents", `/docs/adr/` for "ADRs", OSV for "advisories"); enterprise deployments swap the backend without changing the agent-facing tool signature. See [`../src/rag/`](../src/rag/) for the interface skeleton.
+
+**Why three layers, not one flat tool list:** heterogeneous sources require heterogeneous retrieval pipelines. A single embedding + vector store cannot serve code, time-series, and long-form prose well. This layering is the architectural reason the system can claim "enterprise-data RAG", not just "similar-PR search".
+
+### Cross-cutting components
+
+- **Tiered router** — cascading cost layer ([`../src/models/tiered_router.py`](../src/models/tiered_router.py)); see §Tier breakdown above.
+- **Feedback loop (T4)** — append-only prediction/outcome log ([`../src/storage/feedback_log.py`](../src/storage/feedback_log.py)) joined by `pr_id`, plus a nightly relabeler ([`../src/storage/outcome_labeler.py`](../src/storage/outcome_labeler.py)) that walks pending predictions past their observation window and writes labels via an adopter-supplied `SignalFetcher` (GitHub API / internal CI / ICM / Jira). Computes change failure rate and median MTTR directly — the DORA dashboard's source of truth and the next training run's labeled set.
+- **Multi-vendor model gateway** — uniform `predict()` API across Claude, NVIDIA NIM, Triton-served NeMo fine-tune, and Azure OpenAI. Each Tier above selects its backend through the gateway; A/B comparison and graceful degradation are first-class.
+- **Pluggable training-data sources for T2 fine-tuning** — `TrainingDataSource` abstract over OSS data (CodeXGLUE Devign + GitHub PR/CI scrapes) and enterprise data (internal commit history + internal CI + VoC + compliance labels). LoRA adapter design enables single-base / multi-tenant adapters.
+- **Predictive classifier (T2)** — Mistral-7B-v0.3 (Apache 2.0 base) fine-tuned via NeMo + LoRA; compiled to a **TensorRT-LLM engine** via `trtllm-build` for low-latency Triton serving.
+- **Classical-ML baseline (T1)** — NVIDIA RAPIDS **cuML GBDT** on engineered commit features; sklearn-backed implementation lives at [`../src/models/baselines/gbdt.py`](../src/models/baselines/gbdt.py) with cuML-swappable interface.
+- **Audit / persistence** — multi-backend audit log (MongoDB / MySQL / Elasticsearch); required by [`enterprise-safety.md`](enterprise-safety.md) Control 6.
+- **Safety layer** — NVIDIA NeMo Guardrails for output constraints; NVIDIA Garak probes integrated into eval CI.
+- **DORA impact dashboard** (`streamlit`) — cycle time, change failure rate, MTTR, adoption rate, computed from T4 `FeedbackLog`.
+
+### Data flow (single PR)
+
+```
+PR/Commit ──► T1 GBDT gate (always)
+                │
+                ├─ score < 0.6 ──► fast_track (95% of PRs end here)
+                │
+                └─ score ≥ 0.6 ──► T2 Mistral-LoRA (NeMo)
+                                     │
+                                     ├─ score < 0.8 ──► strong_review (~15% end here)
+                                     │
+                                     └─ score ≥ 0.8 ──► T3 Claude Agent + RAG Gateway
+                                                          │
+                                                          ├─ Layer A always queried
+                                                          ├─ Layer B if metadata triggers
+                                                          └─ Layer C if diff semantics trigger
+                                                          │
+                                                          └─► block_until_sme + report (~5%)
+
+(asynchronous, every PR) ──► T4 FeedbackLog ──► nightly retrain T1, recalibrate T2 thresholds
+```
+
+### Mapping to JD requirements
+
+| JD bullet / stand-out | Architectural component |
+|---|---|
+| Bullet 1: accelerate feedback loops, boost release reliability | T1 sub-10ms gate + T4 feedback loop |
+| Bullet 2: design / build / deploy AI agents | T3 Claude Agent + RAG gateway with layered tool dispatch |
+| Bullet 3: measure cycle time / CFR / MTTR | T4 + DORA dashboard |
+| **Bullet 4: predictive models for high-risk commits / build-failure forecasting** ⭐ | T1 (classical ML) + T2 (fine-tuned LLM classifier) — direct 1:1 |
+| Bullet 5: research emerging AI | Multi-vendor gateway + Garak / Guardrails integration |
+| **Stand-out: RAG on enterprise data** | T3 three-layer enterprise RAG taxonomy (Layer A/B/C) |
+| **Stand-out: Fine-tuning on enterprise data** | T2 Mistral + LoRA via NeMo, with pluggable `TrainingDataSource` |
+| Stand-out: real-time + large-scale services | T1 <10ms gate + tier-based early exit |
+| Stand-out: agentic AI for complex workflows | T3 agent's multi-step tool orchestration |
 
 ---
 
@@ -255,7 +339,7 @@ Production-target serving (Mistral-7B-v0.3 + Triton + NIM) requires a CUDA-capab
 
 *Coming in v0.2. Current open questions:*
 
-- Should the judge see the FT classifier's score before reasoning, or operate independently and combine downstream?
+- ~~Should the judge see the FT classifier's score before reasoning, or operate independently and combine downstream?~~ **Resolved (v0.3):** *Sequential cascade with conditioning, not parallel ensemble.* T2 sees T1's score and SHAP factors as conditioning context (not replacement signal — T2 receives the full diff independently); T3 sees T2's score and risk tags the same way. Full rationale and trade-off analysis in [§Architecture → Hybrid scoring](#hybrid-scoring--how-scores-compose-across-tiers). The cascade is also what makes per-tier early-exit economically viable: at realistic PR volume an always-on judge is prohibitive, and 95% of commits are routine enough that T1's verdict is correct. Parallel ensemble remains a future option for the ~20% T2 band where both signals exist; not in v0.3 scope.
 - What's the right balance between Devign (clean labels, security focus) and self-labeled GitHub data (noisy, broader)?
 - How to simulate DORA dashboard data realistically when this isn't deployed in any real org?
 
