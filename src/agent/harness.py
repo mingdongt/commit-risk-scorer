@@ -1,11 +1,20 @@
 """Multi-agent harness for commit-risk-scorer.
 
+This harness is the concrete v0.1 implementation of the **Pre-Merge Risk
+Workflow** — Node #1 of the 5-agent Agentic SDLC System described in
+`docs/agentic-sdlc-architecture.md`. In the system framing it is one
+specialization of a top-level `SDLCWorkflowAgent` that routes events to
+specialist workflows; v0.1 ships only the Pre-Merge specialization, so the
+top-level orchestrator is currently implicit. Elevating this class to be
+`PreMergeRiskWorkflow(SDLCWorkflow)` is the recommended v0.2 first step.
+
 Coordinates 3 specialized sub-agents (diff-analyzer, test-impact-scout,
 historical-context) and aggregates their reports into a final risk score. The
 LLM-judge step (v0.2) consumes the structured reports through
 `src.models.gateway.ModelGateway` to produce grounded natural-language reasoning.
 
-Architecture mirrors the diagram in `docs/design-doc.md` §Architecture.
+Architecture mirrors the diagram in `docs/design-doc.md` §Architecture; system
+context in `docs/agentic-sdlc-architecture.md`.
 
 Status (v0.1):
     - Sub-agent dispatch: REAL (sequential — concurrency lands once tools become

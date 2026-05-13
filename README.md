@@ -119,6 +119,30 @@ The landscape mapped to four quadrants:
 
 The **top-right quadrant** — *predictive + LLM/RAG/agent-driven* — is the unoccupied space this project fills. See [`docs/design-doc.md`](docs/design-doc.md) §*Why This Gap Exists* for the full prior-art breakdown and honest caveats.
 
+## Where this fits — Agentic SDLC System
+
+This repo is **Node #1** of a 5-agent **Agentic SDLC System** — a multi-agent
+platform that uses LLMs + agentic AI to automate end-to-end software-engineering
+workflows and measure their impact in DORA terms. Node #1 (Pre-Merge Risk
+Workflow) is shipped here to production-shape; Nodes #2–#5 are scoped as
+roadmap with concrete interfaces, deliberately not implemented yet so this
+single node can remain deep rather than the system as a whole remaining shallow.
+
+```
+         ┌─ ★ Node 1: Pre-Merge Risk Workflow  ← THIS REPO (shipped)
+         │
+SDLC ────┼─   Node 2: Build Failure Triage     ← roadmap (NVIDIA MTTR lever)
+Workflow │    Node 3: Smart Test Selection     ← roadmap
+Agent    │    Node 4: Release Readiness        ← roadmap
+         │    Node 5: Cross-Team Dependency    ← roadmap (HW-SW codesign)
+         │
+         └─ shared: Orchestrator · Heterogeneous RAG (A/B/C) · Model Gateway
+                    FeedbackLog · Audit Store · Action Surface · DORA loop
+```
+
+Full vision, per-node interfaces, NVIDIA-IPP mapping, and prioritization
+in [`docs/agentic-sdlc-architecture.md`](docs/agentic-sdlc-architecture.md).
+
 ## Architecture (in brief)
 
 ```
