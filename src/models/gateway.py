@@ -44,6 +44,9 @@ class PredictionResponse:
     latency_ms: float
     reasoning: str | None = None  # populated by LLM-judge backends, None for pure classifiers
     raw: dict[str, Any] | None = None
+    # Tier 1 = cheap predictor only; 2 = + LLM judge; 3 = + agent investigation.
+    # Set by TieredRouter; backends called directly leave the default (1).
+    tier_reached: int = 1
 
 
 class ModelBackend(ABC):
